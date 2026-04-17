@@ -203,3 +203,30 @@ pub fn unregister_hotkeys(state: &mut HotkeyState) {
     state.thread_id.store(0, Ordering::SeqCst);
     state.shutdown.store(false, Ordering::SeqCst);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use windows::Win32::UI::Input::KeyboardAndMouse::VK_T;
+
+    #[test]
+    fn test_parse_hotkey_ctrl_shift_t() {
+        let result = parse_hotkey("CTRL+SHIFT+T");
+        assert!(result.is_ok());
+        let (modifiers, vk) = result.unwrap();
+        assert_eq!(modifiers, MOD_CONTROL | MOD_SHIFT);
+        assert_eq!(vk, VK_T);
+    }
+
+    #[test]
+    fn test_parse_hotkey_invalid_empty() {
+        let result = parse_hotkey("");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_hotkey_invalid_garbage() {
+        let result = parse_hotkey("NOT+A+VALID+HOTKEY");
+        assert!(result.is_err());
+    }
+}

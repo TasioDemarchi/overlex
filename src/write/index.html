@@ -4,18 +4,58 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Write Mode</title>
-    <!-- TODO: Floating input field for manual text entry -->
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            background: #1a1a2e;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+        }
+        #write-container {
+            width: 100%;
+            max-width: 340px;
+            padding: 12px;
+        }
+        #write-input {
+            width: 100%;
+            padding: 10px 14px;
+            font-size: 16px;
+            border: 1px solid #3a3a5c;
+            border-radius: 6px;
+            background: #16213e;
+            color: #eee;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        #write-input:focus {
+            border-color: #0f3460;
+        }
+        #write-input::placeholder {
+            color: #6a6a8a;
+        }
+        .status {
+            color: #6a8cff;
+            font-size: 14px;
+            margin-top: 8px;
+            text-align: center;
+            display: none;
+        }
+        .status.visible {
+            display: block;
+        }
+    </style>
 </head>
 <body>
-    <!-- 
-        Write Mode:
-        - Small floating input appears on hotkey
-        - User types word/phrase
-        - Press Enter to translate
-        - Press Escape to dismiss
-    -->
     <div id="write-container">
         <input type="text" id="write-input" placeholder="Enter text to translate..." />
+        <div id="status" class="status">Translating...</div>
     </div>
     <script src="write.js"></script>
 </body>

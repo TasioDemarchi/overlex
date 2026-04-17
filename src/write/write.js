@@ -1,17 +1,41 @@
 // Write mode - manual text input for translation
-// TODO:
-// 1. Show input field focused on window open
-// 2. On Enter, invoke("translate_text", { text }) and close window
-// 3. On Escape, close window without action
 
 console.log("Write mode loaded");
 
-// Placeholder: will be implemented in T-011
 const input = document.getElementById('write-input');
-input?.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-        // TODO: invoke translate_text and close
+const status = document.getElementById('status');
+
+// Auto-focus on load
+input?.focus();
+
+input?.addEventListener('keydown', async (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        const text = input.value.trim();
+        if (!text) return;
+
+        // Show translating status
+        status.classList.add('visible');
+        input.disabled = true;
+
+        try {
+            // Invoke translate_text command
+            const result = await window.__TAURI__.core.invoke('translate_text', { text });
+            console.log('Translation result:', result);
+        } catch (err) {
+            console.error('Translation error:', err);
+            // Still close on error - let user retry
+        }
+        // Note: write window is closed by Rust after translation completes
     } else if (e.key === 'Escape') {
-        // TODO: close window
+        // Close without translating
+        window.__TAURI__.window.getCurrent().close();
+    }
+});
+
+// Handle window close via escape key also on window level
+window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        window.__TAURI__.window.getCurrent().close();
     }
 });

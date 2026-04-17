@@ -4,94 +4,230 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OverLex Settings</title>
-    <!-- TODO: Settings form - hotkeys, languages, engine selection -->
     <style>
-        body { font-family: sans-serif; padding: 20px; }
-        h1 { margin-bottom: 20px; }
-        .form-group { margin-bottom: 15px; }
-        label { display: block; margin-bottom: 5px; font-weight: bold; }
-        input, select { width: 100%; padding: 8px; }
-        button { padding: 10px 20px; cursor: pointer; }
+        :root {
+            --bg-primary: #1a1a2e;
+            --bg-secondary: #16213e;
+            --bg-tertiary: #0f0f1a;
+            --text-primary: #eee;
+            --text-secondary: #aaa;
+            --accent: #4e9af1;
+            --accent-hover: #5fa8f9;
+            --border: #333;
+            --error: #ff6b6b;
+            --success: #51cf66;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            padding: 20px;
+            min-height: 100vh;
+        }
+        h1 {
+            margin-bottom: 24px;
+            font-size: 1.5rem;
+            font-weight: 600;
+        }
+        h2 {
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--accent);
+            margin: 20px 0 12px;
+            padding-bottom: 6px;
+            border-bottom: 1px solid var(--border);
+        }
+        h2:first-of-type { margin-top: 0; }
+        .form-group { margin-bottom: 14px; }
+        label {
+            display: block;
+            margin-bottom: 6px;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+        input[type="text"],
+        input[type="password"],
+        input[type="number"],
+        select {
+            width: 100%;
+            padding: 10px 12px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text-primary);
+            font-size: 0.9rem;
+            transition: border-color 0.2s;
+        }
+        input:focus, select:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+        input.hotkey-input {
+            font-family: monospace;
+            text-transform: uppercase;
+            cursor: pointer;
+        }
+        input.hotkey-input:focus {
+            border-color: var(--accent);
+            background: var(--bg-secondary);
+        }
+        input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            accent-color: var(--accent);
+        }
+        .checkbox-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            font-size: 0.9rem;
+        }
+        button#save-btn {
+            width: 100%;
+            padding: 12px;
+            margin-top: 24px;
+            background: var(--accent);
+            border: none;
+            border-radius: 6px;
+            color: white;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        button#save-btn:hover {
+            background: var(--accent-hover);
+        }
+        #message {
+            margin-top: 16px;
+            padding: 12px;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            display: none;
+        }
+        #message.success {
+            display: block;
+            background: rgba(81, 207, 102, 0.15);
+            color: var(--success);
+            border: 1px solid var(--success);
+        }
+        #message.error {
+            display: block;
+            background: rgba(255, 107, 107, 0.15);
+            color: var(--error);
+            border: 1px solid var(--error);
+        }
+        .section {
+            background: var(--bg-secondary);
+            padding: 16px;
+            border-radius: 8px;
+            margin-bottom: 16px;
+        }
     </style>
 </head>
 <body>
-    <!-- 
-        Settings Panel:
-        - OCR hotkey configuration
-        - Write mode hotkey configuration
-        - Source/target language selection
-        - Translation engine selection
-        - API key input (for premium engines)
-        - Overlay position and timeout
-        - Start with Windows toggle
-    -->
     <h1>OverLex Settings</h1>
-    
-    <div class="form-group">
-        <label for="ocr-hotkey">OCR Hotkey</label>
-        <input type="text" id="ocr-hotkey" value="CTRL+SHIFT+T" />
+
+    <!-- Hotkeys Section -->
+    <h2>Hotkeys</h2>
+    <div class="section">
+        <div class="form-group">
+            <label for="ocr-hotkey">OCR Capture Hotkey</label>
+            <input type="text" id="ocr-hotkey" class="hotkey-input" readonly placeholder="Click to set hotkey" />
+        </div>
+
+        <div class="form-group">
+            <label for="write-hotkey">Write Mode Hotkey</label>
+            <input type="text" id="write-hotkey" class="hotkey-input" readonly placeholder="Click to set hotkey" />
+        </div>
     </div>
-    
-    <div class="form-group">
-        <label for="write-hotkey">Write Mode Hotkey</label>
-        <input type="text" id="write-hotkey" value="CTRL+SHIFT+W" />
+
+    <!-- Translation Section -->
+    <h2>Translation</h2>
+    <div class="section">
+        <div class="form-group">
+            <label for="source-lang">Source Language</label>
+            <select id="source-lang">
+                <option value="auto">Auto-detect</option>
+                <option value="en">English</option>
+                <option value="es">Spanish</option>
+                <option value="fr">French</option>
+                <option value="de">German</option>
+                <option value="pt">Portuguese</option>
+                <option value="it">Italian</option>
+                <option value="ja">Japanese</option>
+                <option value="ko">Korean</option>
+                <option value="zh">Chinese</option>
+                <option value="ru">Russian</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="target-lang">Target Language</label>
+            <select id="target-lang">
+                <option value="es">Spanish</option>
+                <option value="en">English</option>
+                <option value="fr">French</option>
+                <option value="de">German</option>
+                <option value="pt">Portuguese</option>
+                <option value="it">Italian</option>
+                <option value="ja">Japanese</option>
+                <option value="ko">Korean</option>
+                <option value="zh">Chinese</option>
+                <option value="ru">Russian</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="engine">Translation Engine</label>
+            <select id="engine">
+                <option value="libretranslate">LibreTranslate (Free)</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="api-key">API Key</label>
+            <input type="password" id="api-key" placeholder="Enter API key (optional)" />
+        </div>
     </div>
-    
-    <div class="form-group">
-        <label for="source-lang">Source Language</label>
-        <select id="source-lang">
-            <option value="auto">Auto-detect</option>
-            <option value="en">English</option>
-            <option value="es">Spanish</option>
-        </select>
+
+    <!-- Overlay Section -->
+    <h2>Overlay</h2>
+    <div class="section">
+        <div class="form-group">
+            <label for="overlay-position">Position</label>
+            <select id="overlay-position">
+                <option value="near-selection">Near Selection</option>
+                <option value="top-left">Top Left</option>
+                <option value="top-right">Top Right</option>
+                <option value="bottom-left">Bottom Left</option>
+                <option value="bottom-right">Bottom Right</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="overlay-timeout">Auto-dismiss (ms)</label>
+            <input type="number" id="overlay-timeout" min="1000" max="15000" step="500" />
+        </div>
     </div>
-    
-    <div class="form-group">
-        <label for="target-lang">Target Language</label>
-        <select id="target-lang">
-            <option value="es" selected>Spanish</option>
-            <option value="en">English</option>
-        </select>
+
+    <!-- System Section -->
+    <h2>System</h2>
+    <div class="section">
+        <div class="form-group">
+            <label class="checkbox-label">
+                <input type="checkbox" id="start-with-windows" />
+                Start with Windows
+            </label>
+        </div>
     </div>
-    
-    <div class="form-group">
-        <label for="engine">Translation Engine</label>
-        <select id="engine">
-            <option value="libretranslate" selected>LibreTranslate (Free)</option>
-            <option value="deepl">DeepL</option>
-            <option value="google">Google Translate</option>
-        </select>
-    </div>
-    
-    <div class="form-group">
-        <label for="api-key">API Key (optional)</label>
-        <input type="password" id="api-key" placeholder="Enter API key for premium engines" />
-    </div>
-    
-    <div class="form-group">
-        <label for="overlay-position">Overlay Position</label>
-        <select id="overlay-position">
-            <option value="near-selection">Near Selection</option>
-            <option value="top-left">Top Left</option>
-            <option value="top-right">Top Right</option>
-            <option value="bottom-left">Bottom Left</option>
-            <option value="bottom-right">Bottom Right</option>
-        </select>
-    </div>
-    
-    <div class="form-group">
-        <label for="overlay-timeout">Auto-dismiss Timeout (ms)</label>
-        <input type="number" id="overlay-timeout" value="5000" />
-    </div>
-    
-    <div class="form-group">
-        <label>
-            <input type="checkbox" id="start-with-windows" /> Start with Windows
-        </label>
-    </div>
-    
+
     <button id="save-btn">Save Settings</button>
-    
+
+    <div id="message"></div>
+
     <script src="settings.js"></script>
 </body>
 </html>
