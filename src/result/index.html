@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Translation Result</title>
+    <!-- TODO: Display translation result - original text + translated text -->
+</head>
+<body>
+    <!-- 
+        Result Overlay:
+        - Shows "Translating..." initially
+        - Updates with original text → translated text on receipt
+        - Auto-dismisses after timeout or manual dismiss
+    -->
+    <div id="result-container">
+        <div id="status">Translating...</div>
+        <div id="original" style="display: none;"></div>
+        <div id="translated" style="display: none;"></div>
+    </div>
+    <script src="result.js"></script>
+</body>
+</html>

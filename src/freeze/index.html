@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Freeze Overlay</title>
+    <!-- TODO: Implement canvas-based region selection with drag rectangle -->
+</head>
+<body>
+    <!-- 
+        Freeze Overlay:
+        - Displays fullscreen screenshot (dimmed)
+        - User draws selection rectangle with click + drag
+        - On mouse release, sends coordinates to Rust backend and closes
+    -->
+    <canvas id="freeze-canvas"></canvas>
+    <script src="freeze.js"></script>
+</body>
+</html>
