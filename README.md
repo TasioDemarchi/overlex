@@ -2,6 +2,18 @@
 
 > Traduce cualquier texto en pantalla sin salir de tu juego.
 
+## Instalacion rapida
+
+Abre **PowerShell como administrador** y corre:
+
+```powershell
+irm https://raw.githubusercontent.com/TasioDemarchi/overlex/main/install.ps1 | iex
+```
+
+Eso es todo. El script descarga e instala la ultima version automaticamente.
+
+---
+
 ## Que es OverLex
 
 OverLex es una herramienta super ligera que te permite traducir texto de cualquier aplicacion en Windows sin necesidad de minimizar o cambiar de ventana. Imagina que estas jugando un RPG en japones y no entendes que dice un dialogo — con solo presionar una tecla podes capturar ese texto y verlo traducido al instante, todo sin salir del juego.
@@ -13,64 +25,34 @@ Esta pensado principalmente para gamers que juegan en ventana sin bordes (border
 - **OCR Capture**: Captura cualquier region de tu pantalla, extrae el texto y lo traduce
 - **Write Mode**: Escribi texto directamente para traducirlo al instante
 - **Overlay de resultados**: Muestra la traduccion en una ventana semitransparente que no molesta
-- **Hotkeys globales**: Activá las funciones desde cualquier aplicacion con teclas personalizadas
+- **Hotkeys globales**: Activa las funciones desde cualquier aplicacion con teclas personalizadas
 - **Configuracion completa**: Idiomas, posicion del overlay, tiempo de cierre automatico, API keys
 
 ## Requisitos
 
-Antes de instalar, necesitas tener estas cosas en tu PC:
+- Windows 10 o Windows 11 (64-bit)
+- Conexion a internet (para la traduccion)
 
-| Requisito | Que es | Link de descarga |
-|-----------|--------|------------------|
-| **Rust** | Lenguaje de programacion usado por el backend | [rustup.rs](https://rustup.rs/) |
-| **Node.js LTS** | Entorno de JavaScript para el frontend | [nodejs.org](https://nodejs.org/) (version 18 o superior) |
-| **VS Build Tools** | Compiladores de Microsoft para Windows | [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) |
+## Instalacion manual
 
-**Importante**: Cuando instales VS Build Tools, asegurate de marcar la opcion "Desktop development with C++".
+Si preferis descargar el `.exe` directamente, lo encontras en la pagina de [Releases](https://github.com/TasioDemarchi/overlex/releases/latest).
 
-Tambien necesitas:
-- Windows 10 o Windows 11
-- Conexion a internet (para la traduccion en la version actual)
-- Permisos de administrador la primera vez que corras la app (para registrar los hotkeys globales)
+## Desarrollo local
 
-## Instalacion paso a paso
+Si queres compilar el proyecto vos mismo, necesitas:
 
-### Paso 1: Clonar el repositorio
-
-Abre una terminal (PowerShell o CMD) y ejecuta:
+| Requisito | Link |
+|-----------|------|
+| **Rust** | [rustup.rs](https://rustup.rs/) |
+| **Node.js LTS** | [nodejs.org](https://nodejs.org/) |
+| **VS Build Tools** (con "Desktop development with C++") | [visualstudio.microsoft.com](https://visualstudio.microsoft.com/visual-cpp-build-tools/) |
 
 ```bash
-git clone https://github.com/tu-usuario/overlex.git
+git clone https://github.com/TasioDemarchi/overlex.git
 cd overlex
-```
-
-### Paso 2: Instalar dependencias de Rust
-
-```bash
-cd src-tauri
-cargo check
-```
-
-Esto va a compilar todas las dependencias de Rust. Puede tardar unos minutos la primera vez, pero las siguientes sera mucho mas rapido.
-
-### Paso 3: Instalar dependencias de Node.js
-
-Volvemos a la raiz del proyecto e instalamos los paquetes necesarios:
-
-```bash
-cd ..
 npm install
-```
-
-### Paso 4: Correr en modo desarrollo
-
-```bash
 npx tauri dev
 ```
-
-La primera vez puede pedirte que permitas el acceso a traves del firewall de Windows. Acepta y listo.
-
-Si todo salio bien, vas a ver una ventana de la aplicacion. Ahora podes minimizar esa ventana y probarla desde cualquier otro programa.
 
 ## Como usar OverLex
 

@@ -1,0 +1,53 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install frontend dependencies
+        run: npm install
+
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'OverLex ${{ github.ref_name }}'
+          releaseBody: |
+            ## Instalacion rapida
+
+            Abre PowerShell como administrador y corre:
+
+            ```powershell
+            irm https://raw.githubusercontent.com/TasioDemarchi/overlex/main/install.ps1 | iex
+            ```
+
+            O descarga el instalador manualmente desde los assets de abajo (`OverLex_x.x.x_x64-setup.exe`).
+          releaseDraft: false
+          prerelease: false
