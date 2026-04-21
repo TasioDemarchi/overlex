@@ -80,7 +80,7 @@ function resetOriginalToggle() {
 
 // === GLOBAL HANDLERS (called via eval from Rust — guaranteed delivery) ===
 window.onTranslationResult = function(payload) {
-    window.__overlexTimeoutMs = payload.timeout_ms || 5000;
+    window.__overlexTimeoutMs = payload.timeout_ms ?? 5000;
     startDismissTimer(window.__overlexTimeoutMs);
     loadingEl.style.display = 'none';
 
