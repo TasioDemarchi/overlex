@@ -10,6 +10,8 @@ const targetLangSelect = document.getElementById('target-lang');
 const engineSelect = document.getElementById('engine');
 const apiKeyInput = document.getElementById('api-key');
 const overlayPositionSelect = document.getElementById('overlay-position');
+const autoDismissEnabledCheckbox = document.getElementById('auto-dismiss-enabled');
+const timeoutGroup = document.getElementById('timeout-group');
 const overlayTimeoutInput = document.getElementById('overlay-timeout');
 const startWithWindowsCheckbox = document.getElementById('start-with-windows');
 const saveBtn = document.getElementById('save-btn');
@@ -70,6 +72,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     setupHotkeyCapture(ocrHotkeyInput);
     setupHotkeyCapture(writeHotkeyInput);
 
+    // Setup auto-dismiss checkbox toggle
+    autoDismissEnabledCheckbox.addEventListener('change', () => {
+        if (autoDismissEnabledCheckbox.checked) {
+            timeoutGroup.style.display = 'block';
+            if (!overlayTimeoutInput.value) {
+                overlayTimeoutInput.value = 5000;
+            }
+        } else {
+            timeoutGroup.style.display = 'none';
+        }
+    });
+
     // Load current settings
     try {
         const settings = await invoke('get_settings');
@@ -81,7 +95,18 @@ document.addEventListener('DOMContentLoaded', async () => {
         targetLangSelect.value = settings.target_lang || 'es';
         engineSelect.value = settings.engine || 'libretranslate';
         overlayPositionSelect.value = settings.overlay_position || 'near-selection';
-        overlayTimeoutInput.value = settings.overlay_timeout_ms || 5000;
+        
+        // Handle auto-dismiss: if timeout > 0, check and show; if 0, uncheck and hide
+        if (settings.overlay_timeout_ms > 0) {
+            autoDismissEnabledCheckbox.checked = true;
+            timeoutGroup.style.display = 'block';
+            overlayTimeoutInput.value = settings.overlay_timeout_ms;
+        } else {
+            autoDismissEnabledCheckbox.checked = false;
+            timeoutGroup.style.display = 'none';
+            overlayTimeoutInput.value = 5000;
+        }
+        
         startWithWindowsCheckbox.checked = settings.start_with_windows || false;
 
         // Load API key (if any)
@@ -109,7 +134,10 @@ saveBtn.addEventListener('click', async () => {
         target_lang: targetLangSelect.value,
         engine: engineSelect.value,
         overlay_position: overlayPositionSelect.value,
-        overlay_timeout_ms: parseInt(overlayTimeoutInput.value) || 5000,
+        // If checkbox unchecked, send 0 (never dismiss). If checked, send the value or default 5000
+        overlay_timeout_ms: autoDismissEnabledCheckbox.checked 
+            ? (parseInt(overlayTimeoutInput.value) || 5000) 
+            : 0,
         start_with_windows: startWithWindowsCheckbox.checked,
         libre_translate_url: 'https://libretranslate.com', // Default URL
     };

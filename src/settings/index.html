@@ -208,8 +208,14 @@
         </div>
 
         <div class="form-group">
-            <label for="overlay-timeout">Auto-dismiss (ms)</label>
-            <input type="number" id="overlay-timeout" min="1000" max="15000" step="500" />
+            <label class="checkbox-label">
+                <input type="checkbox" id="auto-dismiss-enabled" />
+                Auto-dismiss overlay
+            </label>
+        </div>
+        <div class="form-group" id="timeout-group" style="display:none;">
+            <label for="overlay-timeout">Dismiss after (ms)</label>
+            <input type="number" id="overlay-timeout" min="500" max="30000" step="500" />
         </div>
     </div>
 
