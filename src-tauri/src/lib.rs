@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex};
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Emitter, Manager, Runtime, Listener, Position, LogicalPosition,
+    Manager, Runtime, Listener, Position, LogicalPosition,
 };
 use image::{ImageBuffer, Rgba, ImageEncoder};
 use translation::TranslationEngine;
@@ -173,83 +173,103 @@ pub fn run() {
                     };
 
                     let (rgba_bytes, width, height) = raw_result;
-                    eprintln!("[RUST] capture done {}x{}, encoding PNG...", width, height);
+                    eprintln!("[RUST] capture done {}x{}, spawning background PNG encode...", width, height);
 
-                    // 2. Encode PNG synchronously (CompressionType::Fast for speed)
-                    let img: ImageBuffer<Rgba<u8>, Vec<u8>> = match ImageBuffer::from_raw(width, height, rgba_bytes.clone()) {
-                        Some(i) => i,
-                        None => {
-                            eprintln!("Failed to create image buffer for PNG encoding");
-                            return;
+                    // 2. Spawn PNG encode in background (don't await yet - runs in parallel)
+                    let rgba_for_png = rgba_bytes.clone();
+                    let width_for_png = width;
+                    let height_for_png = height;
+                    let png_task = tokio::task::spawn_blocking(move || {
+                        // Encode PNG with Fast compression
+                        let img: ImageBuffer<Rgba<u8>, Vec<u8>> = match ImageBuffer::from_raw(width_for_png, height_for_png, rgba_for_png) {
+                            Some(i) => i,
+                            None => {
+                                eprintln!("[PNG] Failed to create image buffer");
+                                return None;
+                            }
+                        };
+
+                        let mut png_bytes: Vec<u8> = Vec::new();
+                        let encoder = image::codecs::png::PngEncoder::new_with_quality(
+                            std::io::Cursor::new(&mut png_bytes),
+                            image::codecs::png::CompressionType::Fast,
+                            image::codecs::png::FilterType::NoFilter,
+                        );
+                        if let Err(e) = encoder.write_image(img.as_raw(), width_for_png, height_for_png, image::ExtendedColorType::Rgba8) {
+                            eprintln!("[PNG] encoding failed: {}", e);
+                            return None;
                         }
-                    };
 
-                    let mut png_bytes: Vec<u8> = Vec::new();
-                    let encoder = image::codecs::png::PngEncoder::new_with_quality(
-                        std::io::Cursor::new(&mut png_bytes),
-                        image::codecs::png::CompressionType::Fast,
-                        image::codecs::png::FilterType::NoFilter,
-                    );
-                    if let Err(e) = encoder.write_image(img.as_raw(), width, height, image::ExtendedColorType::Rgba8) {
-                        eprintln!("PNG encoding failed: {}", e);
-                        return;
-                    }
+                        eprintln!("[PNG] background encode done, {} bytes", png_bytes.len());
+                        Some(png_bytes)
+                    });
 
-                    // 3. Store PNG in ScreenshotState for OCR (ocr_capture_region uses this)
-                    if let Some(state) = handle.try_state::<ScreenshotState>() {
-                        *state.png_data.lock().unwrap() = Some(png_bytes.clone());
-                    }
-
-                    // DEBUG: save PNG to disk to verify it's not corrupt
-                    let _ = std::fs::write("C:\\Users\\Slim-7\\Desktop\\debug_screenshot.png", &png_bytes);
-                    eprintln!("[RUST] PNG saved to Desktop for inspection");
-
-                    // 4. Show freeze window
+                    // 3. Show freeze window IMMEDIATELY (no PNG encode blocking)
                     if let Some(freeze_win) = handle.get_webview_window("freeze") {
                         let _ = freeze_win.show();
                         let _ = freeze_win.set_focus();
-                        eprintln!("[RUST] freeze window shown, png_bytes len={}", png_bytes.len());
+                        eprintln!("[RUST] freeze window shown immediately");
 
-                        // Delay to let WebView fully render before injecting
-                        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                        // Short delay to let WebView fully render before injecting
+                        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
-                        // Encode PNG as base64 and inject directly via eval — bypasses event system entirely
+                        // Encode raw RGBA as base64 for ImageData (no PNG needed for display)
                         use base64::Engine as _;
-                        let b64 = base64::engine::general_purpose::STANDARD.encode(&png_bytes);
-                        eprintln!("[RUST] base64 len={}, injecting via eval...", b64.len());
+                        let rgba_b64 = base64::engine::general_purpose::STANDARD.encode(&rgba_bytes);
+                        eprintln!("[RUST] rgba base64 len={}, injecting via ImageData eval...", rgba_b64.len());
+
                         let js = format!(
                             r#"
                             (function() {{
                                 var canvas = document.getElementById('freeze-canvas');
-                                if (!canvas) {{
-                                    window.__TAURI__.core.invoke('js_log', {{msg: '[JS] ERROR: canvas not found'}});
-                                    return;
-                                }}
                                 var ctx = canvas.getContext('2d', {{ alpha: false }});
                                 canvas.width = window.innerWidth;
                                 canvas.height = window.innerHeight;
-                                // TEST: paint red first to confirm WebView renders
-                                ctx.fillStyle = '#ff0000';
+                                var w = {width};
+                                var h = {height};
+                                var rawB64 = '{rgba_b64}';
+                                var binary = atob(rawB64);
+                                var bytes = new Uint8ClampedArray(binary.length);
+                                for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+                                var imageData = new ImageData(bytes, w, h);
+                                // Create offscreen canvas to scale
+                                var offscreen = document.createElement('canvas');
+                                offscreen.width = w;
+                                offscreen.height = h;
+                                var offCtx = offscreen.getContext('2d');
+                                offCtx.putImageData(imageData, 0, 0);
+                                ctx.drawImage(offscreen, 0, 0, canvas.width, canvas.height);
+                                ctx.fillStyle = 'rgba(0,0,0,0.3)';
                                 ctx.fillRect(0, 0, canvas.width, canvas.height);
-                                window.__TAURI__.core.invoke('js_log', {{msg: '[JS] painted RED ' + canvas.width + 'x' + canvas.height}});
-                                var img = new Image();
-                                img.onload = function() {{
-                                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                                    ctx.fillStyle = 'rgba(0,0,0,0.3)';
-                                    ctx.fillRect(0, 0, canvas.width, canvas.height);
-                                    window._screenshotImg = img;
-                                    window.__TAURI__.core.invoke('js_log', {{msg: '[JS] drawn screenshot ' + canvas.width + 'x' + canvas.height}});
-                                }};
-                                img.onerror = function() {{
-                                    window.__TAURI__.core.invoke('js_log', {{msg: '[JS] ERROR: img decode failed'}});
-                                }};
-                                img.src = 'data:image/png;base64,{b64}';
+                                window._screenshotImg = offscreen;
+                                window.__TAURI__.core.invoke('js_log', {{msg: '[JS] drawn via ImageData ' + w + 'x' + h}});
                             }})();
                             "#,
-                            b64 = b64
+                            width = width,
+                            height = height,
+                            rgba_b64 = rgba_b64
                         );
                         let eval_result = freeze_win.eval(&js);
-                        eprintln!("[RUST] eval result: {:?}", eval_result);
+                        eprintln!("[RUST] eval result via ImageData: {:?}", eval_result);
+                    }
+
+                    // 4. Await PNG task and store in ScreenshotState (runs in parallel with freeze display)
+                    match png_task.await {
+                        Ok(Some(png_bytes)) => {
+                            // Store PNG in ScreenshotState for OCR (ocr_capture_region uses this)
+                            if let Some(state) = handle.try_state::<ScreenshotState>() {
+                                *state.png_data.lock().unwrap() = Some(png_bytes.clone());
+                            }
+                            // DEBUG: save PNG to disk to verify it's not corrupt
+                            let _ = std::fs::write("C:\\Users\\Slim-7\\Desktop\\debug_screenshot.png", &png_bytes);
+                            eprintln!("[RUST] PNG saved to Desktop, stored in ScreenshotState");
+                        }
+                        Ok(None) => {
+                            eprintln!("[RUST] PNG encode returned None");
+                        }
+                        Err(e) => {
+                            eprintln!("[RUST] PNG task panicked: {}", e);
+                        }
                     }
                 });
             });

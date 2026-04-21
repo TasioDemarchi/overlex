@@ -104,8 +104,10 @@
 
         // Calculate DPI scale factor: screenshot pixels vs CSS pixels
         const img = screenshotImage || window._screenshotImg;
-        const scaleX = img.naturalWidth / canvas.width;
-        const scaleY = img.naturalHeight / canvas.height;
+        const imgW = img.naturalWidth ?? img.width;
+        const imgH = img.naturalHeight ?? img.height;
+        const scaleX = imgW / canvas.width;
+        const scaleY = imgH / canvas.height;
 
         const rect = {
             x: Math.round(x * scaleX),
