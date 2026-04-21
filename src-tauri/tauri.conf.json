@@ -5,7 +5,6 @@
   "identifier": "com.overlex.app",
   "build": {
     "frontendDist": "../src",
-    "devUrl": "http://localhost:1420",
     "beforeDevCommand": "",
     "beforeBuildCommand": ""
   },
@@ -28,9 +27,10 @@
         "fullscreen": true,
         "decorations": false,
         "alwaysOnTop": true,
-        "transparent": true,
+        "transparent": false,
         "visible": false,
         "skipTaskbar": true,
+        "devtools": true,
         "url": "freeze/index.html"
       },
       {
@@ -43,19 +43,20 @@
         "transparent": true,
         "visible": false,
         "skipTaskbar": true,
-        "resizable": false,
+        "resizable": true,
         "url": "result/index.html"
       },
       {
         "label": "write",
         "title": "Write",
-        "width": 350,
-        "height": 80,
+        "width": 420,
+        "height": 300,
         "decorations": false,
         "alwaysOnTop": true,
+        "transparent": true,
         "visible": false,
-        "center": true,
-        "resizable": false,
+        "resizable": true,
+        "skipTaskbar": true,
         "url": "write/index.html"
       }
     ],

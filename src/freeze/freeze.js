@@ -5,7 +5,25 @@
     'use strict';
 
     const canvas = document.getElementById('freeze-canvas');
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d', { alpha: false });
+
+    // Patch canvas.width and canvas.height setters to detect who clears the canvas
+    const _origWidth = Object.getOwnPropertyDescriptor(HTMLCanvasElement.prototype, 'width');
+    const _origHeight = Object.getOwnPropertyDescriptor(HTMLCanvasElement.prototype, 'height');
+    Object.defineProperty(canvas, 'width', {
+        set(v) {
+            window.__TAURI__?.core?.invoke('js_log', {msg: '[CANVAS] width set to ' + v + ' stack: ' + new Error().stack.split('\n').slice(1,3).join(' | ')});
+            _origWidth.set.call(this, v);
+        },
+        get() { return _origWidth.get.call(this); }
+    });
+    Object.defineProperty(canvas, 'height', {
+        set(v) {
+            window.__TAURI__?.core?.invoke('js_log', {msg: '[CANVAS] height set to ' + v + ' stack: ' + new Error().stack.split('\n').slice(1,3).join(' | ')});
+            _origHeight.set.call(this, v);
+        },
+        get() { return _origHeight.get.call(this); }
+    });
 
     // State
     let screenshotImage = null;
@@ -19,39 +37,29 @@
 
     // Initialize canvas to full window size
     function resizeCanvas() {
+        // Only resize if we have no screenshot yet — resizing clears the canvas
+        if (screenshotImage || window._screenshotImg) return;
         canvas.width = window.innerWidth;
         canvas.height = window.innerHeight;
-        // Redraw if we already have an image
-        if (screenshotImage) {
-            draw();
-        }
     }
 
-    // Main draw function: screenshot + dim overlay + selection
     function draw() {
-        if (!screenshotImage) return;
+        // Use module-level screenshotImage OR the one injected by Rust eval
+        const img = screenshotImage || window._screenshotImg;
+        if (!img) return;
 
-        // 1. Draw the screenshot
-        ctx.drawImage(screenshotImage, 0, 0, canvas.width, canvas.height);
-
-        // 2. Apply dim overlay over entire screen
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
         ctx.fillStyle = DIM_OVERLAY;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-        // 3. If dragging, clear the selection rectangle (show original brightness)
         if (isDragging) {
             const x = Math.min(dragStart.x, dragCurrent.x);
             const y = Math.min(dragStart.y, dragCurrent.y);
             const w = Math.abs(dragCurrent.x - dragStart.x);
             const h = Math.abs(dragCurrent.y - dragStart.y);
-
             if (w > 0 && h > 0) {
-                // Clear the dimmed area to show original screenshot
                 ctx.clearRect(x, y, w, h);
-                // Redraw the screenshot in that area
-                ctx.drawImage(screenshotImage, x, y, w, h, x, y, w, h);
-
-                // Draw selection border
+                ctx.drawImage(img, x, y, w, h, x, y, w, h);
                 ctx.strokeStyle = '#00ff00';
                 ctx.lineWidth = 2;
                 ctx.strokeRect(x, y, w, h);
@@ -59,8 +67,13 @@
         }
     }
 
-    // Handle mouse down - start drag
     function onMouseDown(e) {
+        const img = screenshotImage || window._screenshotImg;
+        if (!img) {
+            loadFromStore();
+            return;
+        }
+        if (!screenshotImage) screenshotImage = img; // sync up
         isDragging = true;
         dragStart.x = e.clientX;
         dragStart.y = e.clientY;
@@ -68,7 +81,6 @@
         dragCurrent.y = e.clientY;
     }
 
-    // Handle mouse move - update drag
     function onMouseMove(e) {
         if (!isDragging) return;
         dragCurrent.x = e.clientX;
@@ -76,102 +88,123 @@
         draw();
     }
 
-    // Handle mouse up - end drag, send coordinates to Rust
     function onMouseUp(e) {
         if (!isDragging) return;
         isDragging = false;
 
-        // Calculate selection rectangle
         const x = Math.min(dragStart.x, dragCurrent.x);
         const y = Math.min(dragStart.y, dragCurrent.y);
         const width = Math.abs(dragCurrent.x - dragStart.x);
         const height = Math.abs(dragCurrent.y - dragStart.y);
 
-        // Ignore small clicks (not a real drag)
         if (width < MIN_DRAG_DISTANCE || height < MIN_DRAG_DISTANCE) {
             console.log('Drag too small, ignoring');
             return;
         }
 
-        // Convert to integers and call Rust
+        // Calculate DPI scale factor: screenshot pixels vs CSS pixels
+        const img = screenshotImage || window._screenshotImg;
+        const scaleX = img.naturalWidth / canvas.width;
+        const scaleY = img.naturalHeight / canvas.height;
+
         const rect = {
-            x: Math.round(x),
-            y: Math.round(y),
-            width: Math.round(width),
-            height: Math.round(height)
+            x: Math.round(x * scaleX),
+            y: Math.round(y * scaleY),
+            width: Math.round(width * scaleX),
+            height: Math.round(height * scaleY)
         };
 
         console.log('Selection:', rect);
 
-        // Invoke Rust to capture the region
         window.__TAURI__.core.invoke('ocr_capture_region', rect)
             .then(() => {
                 console.log('OCR region sent to Rust');
-                // Rust will close the window
+                resetState();
             })
             .catch(err => {
                 console.error('Failed to invoke ocr_capture_region:', err);
-                // Fallback: close the window ourselves if invoke fails
-                window.__TAURI__.window.getCurrentWindow().close();
+                resetState();
+                window.__TAURI__.core.invoke('hide_window', { label: 'freeze' });
             });
     }
 
-    // Handle ESC key to dismiss without OCR
+    // ESC to dismiss
     function onKeyDown(e) {
         if (e.key === 'Escape') {
-            console.log('ESC pressed, closing freeze overlay');
-            window.__TAURI__.window.getCurrentWindow().close();
+            console.log('ESC pressed, hiding freeze overlay');
+            resetState();
+            window.__TAURI__.core.invoke('hide_window', { label: 'freeze' });
         }
     }
 
-    // Listen for start-freeze event from Rust
+    function resetState() {
+        screenshotImage = null;
+        isDragging = false;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+
+    // Load PNG from Rust store via invoke (reliable fallback)
+    async function loadFromStore() {
+        try {
+            console.log('loadFromStore: invoking get_stored_screenshot...');
+            const pngBytes = await window.__TAURI__.core.invoke('get_stored_screenshot');
+            console.log('loadFromStore: got bytes, length:', pngBytes?.length);
+            if (pngBytes && pngBytes.length > 0) {
+                await loadPngScreenshot(pngBytes);
+            }
+        } catch (err) {
+            console.error('loadFromStore error:', err);
+        }
+    }
+
+    // Load PNG bytes as blob URL for display
+    async function loadPngScreenshot(pngBytes) {
+        try {
+            const bytes = Array.isArray(pngBytes) ? new Uint8Array(pngBytes) : pngBytes;
+            console.log('loadPngScreenshot: bytes length:', bytes.length, 'first4:', bytes[0], bytes[1], bytes[2], bytes[3]);
+            const blob = new Blob([bytes], { type: 'image/png' });
+            const url = URL.createObjectURL(blob);
+            const img = new Image();
+            img.onload = () => {
+                screenshotImage = img;
+                URL.revokeObjectURL(url);
+                resizeCanvas();
+                draw();
+                console.log('PNG screenshot drawn on canvas (' + img.naturalWidth + 'x' + img.naturalHeight + ')');
+            };
+            img.onerror = (e) => {
+                console.error('Failed to decode PNG image', e);
+                URL.revokeObjectURL(url);
+            };
+            img.src = url;
+        } catch (err) {
+            console.error('loadPngScreenshot error:', err);
+        }
+    }
+
     async function init() {
         console.log('Freeze overlay initializing...');
 
-        // Set up canvas size
         resizeCanvas();
-        window.addEventListener('resize', resizeCanvas);
+        // Don't add resize listener — it clears canvas. Handle manually if needed.
 
-        // Mouse events
         canvas.addEventListener('mousedown', onMouseDown);
         window.addEventListener('mousemove', onMouseMove);
         window.addEventListener('mouseup', onMouseUp);
 
-        // Keyboard events
         window.addEventListener('keydown', onKeyDown);
+        document.addEventListener('keydown', onKeyDown);
 
-        // Listen for the screenshot from Rust
-        try {
-            await window.__TAURI__.event.listen('start-freeze', (event) => {
-                console.log('Received start-freeze event');
-                const payload = event.payload;
-                const screenshotB64 = payload.screenshot_b64;
-
-                if (!screenshotB64) {
-                    console.error('No screenshot data in event');
-                    return;
-                }
-
-                // Decode base64 to image
-                const img = new Image();
-                img.onload = () => {
-                    screenshotImage = img;
-                    resizeCanvas();
-                    draw();
-                    console.log('Screenshot drawn on canvas');
-                };
-                img.onerror = () => {
-                    console.error('Failed to load screenshot image');
-                };
-                img.src = 'data:image/png;base64,' + screenshotB64;
+        // screenshot-png event (kept for compatibility)
+        if (window.__TAURI__?.event) {
+            window.__TAURI__.event.listen('screenshot-png', async (event) => {
+                const pngBytes = event.payload;
+                if (pngBytes && pngBytes.length > 0) await loadPngScreenshot(pngBytes);
             });
-            console.log('Listening for start-freeze events');
-        } catch (err) {
-            console.error('Failed to set up event listener:', err);
         }
+        // NOTE: no focus listener, no setTimeout — Rust injects via eval directly
     }
 
-    // Start when DOM is ready
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', init);
     } else {

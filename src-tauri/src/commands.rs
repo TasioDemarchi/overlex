@@ -74,7 +74,7 @@ impl Default for Settings {
             write_hotkey: "CTRL+SHIFT+W".to_string(),
             source_lang: "auto".to_string(),
             target_lang: "es".to_string(),
-            engine: "libretranslate".to_string(),
+            engine: "google_gtx".to_string(),
             overlay_timeout_ms: 5000,
             overlay_position: "near-selection".to_string(),
             start_with_windows: false,
@@ -145,7 +145,20 @@ pub async fn translate_text(
                 code: "NETWORK_ERROR".to_string(),
                 message: e.to_string(),
             };
-            let _ = app_handle.emit("overlex-error", err_payload);
+            // Try to emit to result window, fallback to global
+            if let Some(result_window) = app_handle.get_webview_window("result") {
+                let _ = result_window.emit("overlex-error", err_payload.clone());
+                // Show and deliver error via eval for guaranteed delivery
+                let _ = result_window.show();
+                if let Ok(json_err) = serde_json::to_string(&err_payload) {
+                    let _ = result_window.eval(&format!(
+                        "if (window.onOverlexError) window.onOverlexError({});",
+                        json_err
+                    ));
+                }
+            } else {
+                let _ = app_handle.emit("overlex-error", err_payload);
+            }
             return Err(e.to_string());
         }
     };
@@ -156,21 +169,31 @@ pub async fn translate_text(
         detected_source: result.detected_source,
     };
 
-    // Emit result event
+    // Create payload BEFORE getting the window
     let payload = ResultPayload {
         original: text,
         translated: translated_result.translated.clone(),
         error: None,
         timeout_ms: settings.overlay_timeout_ms,
     };
-    let _ = app_handle.emit("translation-result", payload);
 
-    // Show result window
+    // Show result window and emit directly to it
     if let Some(result_window) = app_handle.get_webview_window("result") {
         let _ = result_window.show();
 
         // Position the result window based on settings
         position_result_window(&result_window, &settings, &None, 0, 0, 0, 0);
+
+        // Emit directly to result window (not globally)
+        let _ = result_window.emit("translation-result", &payload);
+
+        // Guaranteed delivery via eval
+        if let Ok(json_payload) = serde_json::to_string(&payload) {
+            let _ = result_window.eval(&format!(
+                "if (window.onTranslationResult) window.onTranslationResult({});",
+                json_payload
+            ));
+        }
     }
 
     // Close write window and restore focus to previous app
@@ -213,7 +236,20 @@ pub async fn ocr_capture_region(
                 code: "OCR_ERROR".to_string(),
                 message: "No screenshot available. Start OCR flow first.".to_string(),
             };
-            let _ = app_handle.emit("overlex-error", err_payload);
+            // Try to emit to result window, fallback to global
+            if let Some(result_window) = app_handle.get_webview_window("result") {
+                let _ = result_window.emit("overlex-error", err_payload.clone());
+                // Show and deliver error via eval for guaranteed delivery
+                let _ = result_window.show();
+                if let Ok(json_err) = serde_json::to_string(&err_payload) {
+                    let _ = result_window.eval(&format!(
+                        "if (window.onOverlexError) window.onOverlexError({});",
+                        json_err
+                    ));
+                }
+            } else {
+                let _ = app_handle.emit("overlex-error", err_payload);
+            }
             return Err("No screenshot available. Start OCR flow first.".to_string());
         }
     };
@@ -226,7 +262,20 @@ pub async fn ocr_capture_region(
                 code: "OCR_ERROR".to_string(),
                 message: format!("Failed to capture region: {}", e),
             };
-            let _ = app_handle.emit("overlex-error", err_payload);
+            // Try to emit to result window, fallback to global
+            if let Some(result_window) = app_handle.get_webview_window("result") {
+                let _ = result_window.emit("overlex-error", err_payload.clone());
+                // Show and deliver error via eval for guaranteed delivery
+                let _ = result_window.show();
+                if let Ok(json_err) = serde_json::to_string(&err_payload) {
+                    let _ = result_window.eval(&format!(
+                        "if (window.onOverlexError) window.onOverlexError({});",
+                        json_err
+                    ));
+                }
+            } else {
+                let _ = app_handle.emit("overlex-error", err_payload);
+            }
             return Err(format!("Failed to capture region: {}", e));
         }
     };
@@ -239,7 +288,20 @@ pub async fn ocr_capture_region(
                 code: "OCR_ERROR".to_string(),
                 message: format!("OCR failed: {}", e),
             };
-            let _ = app_handle.emit("overlex-error", err_payload);
+            // Try to emit to result window, fallback to global
+            if let Some(result_window) = app_handle.get_webview_window("result") {
+                let _ = result_window.emit("overlex-error", err_payload.clone());
+                // Show and deliver error via eval for guaranteed delivery
+                let _ = result_window.show();
+                if let Ok(json_err) = serde_json::to_string(&err_payload) {
+                    let _ = result_window.eval(&format!(
+                        "if (window.onOverlexError) window.onOverlexError({});",
+                        json_err
+                    ));
+                }
+            } else {
+                let _ = app_handle.emit("overlex-error", err_payload);
+            }
             return Err(format!("OCR failed: {}", e));
         }
     };
@@ -255,13 +317,37 @@ pub async fn ocr_capture_region(
             error: Some("No text detected in selection".to_string()),
             timeout_ms: settings.overlay_timeout_ms,
         };
-        let _ = app_handle.emit("translation-result", error_payload);
+
+        // Try to emit directly to result window, fallback to global
+        if let Some(result_window) = app_handle.get_webview_window("result") {
+            let _ = result_window.emit("translation-result", &error_payload);
+            // Also deliver via eval for guaranteed delivery
+            if let Ok(json_err_payload) = serde_json::to_string(&error_payload) {
+                let _ = result_window.eval(&format!(
+                    "if (window.onTranslationResult) window.onTranslationResult({});",
+                    json_err_payload
+                ));
+            }
+        } else {
+            let _ = app_handle.emit("translation-result", error_payload);
+        }
 
         let err_payload = ErrorPayload {
             code: "OCR_EMPTY".to_string(),
             message: "No text detected in selection".to_string(),
         };
-        let _ = app_handle.emit("overlex-error", err_payload);
+        if let Some(result_window) = app_handle.get_webview_window("result") {
+            let _ = result_window.emit("overlex-error", err_payload.clone());
+            // Also deliver error via eval
+            if let Ok(json_err) = serde_json::to_string(&err_payload) {
+                let _ = result_window.eval(&format!(
+                    "if (window.onOverlexError) window.onOverlexError({});",
+                    json_err
+                ));
+            }
+        } else {
+            let _ = app_handle.emit("overlex-error", err_payload);
+        }
         return Err("No text detected in selection".to_string());
     }
 
@@ -282,26 +368,54 @@ pub async fn ocr_capture_region(
                 code: "NETWORK_ERROR".to_string(),
                 message: format!("Translation failed: {}", e),
             };
-            let _ = app_handle.emit("overlex-error", err_payload);
+            // Try to emit to result window, fallback to global
+            if let Some(result_window) = app_handle.get_webview_window("result") {
+                let _ = result_window.emit("overlex-error", err_payload.clone());
+                // Show and deliver error via eval for guaranteed delivery
+                let _ = result_window.show();
+                if let Ok(json_err) = serde_json::to_string(&err_payload) {
+                    let _ = result_window.eval(&format!(
+                        "if (window.onOverlexError) window.onOverlexError({});",
+                        json_err
+                    ));
+                }
+            } else {
+                let _ = app_handle.emit("overlex-error", err_payload);
+            }
             return Err(format!("Translation failed: {}", e));
         }
     };
 
-    // 7. Emit result event
+    // Create payload BEFORE getting the window
     let payload = ResultPayload {
         original: original_text.clone(),
         translated: translation_result.translated.clone(),
         error: None,
         timeout_ms: settings.overlay_timeout_ms,
     };
-    let _ = app_handle.emit("translation-result", payload);
 
-    // 8. Show result window
+    // Show result window and emit directly to it
     if let Some(result_window) = app_handle.get_webview_window("result") {
         let _ = result_window.show();
 
         // Position the result window based on settings with selection coordinates
         position_result_window(&result_window, &settings, &None, x, y, width, height);
+
+        // Emit directly to result window (not globally)
+        let _ = result_window.emit("translation-result", &payload);
+
+        // Guaranteed delivery via eval
+        if let Ok(json_payload) = serde_json::to_string(&payload) {
+            let _ = result_window.eval(&format!(
+                "if (window.onTranslationResult) window.onTranslationResult({});",
+                json_payload
+            ));
+        }
+    }
+
+    // Hide freeze window
+    if let Some(freeze_win) = app_handle.get_webview_window("freeze") {
+        let _ = freeze_win.hide();
     }
 
     Ok(TranslationResult {
@@ -309,6 +423,39 @@ pub async fn ocr_capture_region(
         translated: translation_result.translated,
         detected_source: translation_result.detected_source,
     })
+}
+
+/// Translate text via chat mode (write mode) - only translates, no window management
+#[tauri::command]
+pub async fn translate_chat(
+    text: String,
+    translation_state: tauri::State<'_, TranslationState>,
+    settings_state: tauri::State<'_, SettingsState>,
+) -> Result<TranslationResult, String> {
+    // Get settings for source/target languages
+    let settings = settings_state.settings.lock().unwrap().clone();
+
+    // Call translation engine
+    let result = translation_state
+        .engine
+        .translate(&text, &settings.source_lang, &settings.target_lang)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(TranslationResult {
+        original: text,
+        translated: result.translated,
+        detected_source: result.detected_source,
+    })
+}
+
+/// Hide a specific window by label
+#[tauri::command]
+pub async fn hide_window(label: String, app_handle: tauri::AppHandle) -> Result<(), String> {
+    if let Some(window) = app_handle.get_webview_window(&label) {
+        window.hide().map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 /// Dismiss result overlay
@@ -330,6 +477,12 @@ pub async fn get_screenshot_base64() -> Result<String, String> {
     Ok(STANDARD.encode(&png_bytes))
 }
 
+/// Get the DPI scale factor for the primary monitor
+#[tauri::command]
+pub async fn get_dpi_scale() -> Result<f64, String> {
+    capture::get_dpi_scale()
+}
+
 /// Get API key for translation engine
 #[tauri::command]
 pub async fn get_api_key(engine: String) -> Result<String, String> {
@@ -341,3 +494,49 @@ pub async fn get_api_key(engine: String) -> Result<String, String> {
 pub async fn set_api_key(engine: String, key: String) -> Result<(), String> {
     settings::set_api_key(&engine, &key)
 }
+
+/// Get the stored screenshot from ScreenshotState (already captured, not a new capture)
+/// This eliminates the race condition of the start-freeze event
+/// Returns raw PNG bytes instead of base64 to avoid 33% encoding overhead
+#[tauri::command]
+pub async fn get_stored_screenshot(
+    screenshot_state: tauri::State<'_, ScreenshotState>,
+) -> Result<Vec<u8>, String> {
+    screenshot_state
+        .png_data
+        .lock()
+        .unwrap()
+        .clone()
+        .ok_or("No screenshot stored".to_string())
+}
+
+/// Debug: log a message from JS to the Rust terminal
+#[tauri::command]
+pub fn js_log(msg: String) {
+    eprintln!("{}", msg);
+}
+#[tauri::command]
+pub fn drag_result_window_noactivate(x: i32, y: i32, app_handle: tauri::AppHandle) {
+    if let Some(window) = app_handle.get_webview_window("result") {
+        #[cfg(target_os = "windows")]
+        {
+            use windows::Win32::UI::WindowsAndMessaging::{SetWindowPos, SWP_NOACTIVATE, SWP_NOSIZE, SWP_NOZORDER};
+            use windows::Win32::Foundation::HWND;
+
+            if let Ok(hwnd) = window.hwnd() {
+                unsafe {
+                    let _ = SetWindowPos(
+                        HWND(hwnd.0 as *mut _),
+                        HWND(std::ptr::null_mut()),
+                        x,
+                        y,
+                        0,
+                        0,
+                        SWP_NOACTIVATE | SWP_NOSIZE | SWP_NOZORDER,
+                    );
+                }
+            }
+        }
+    }
+}
+

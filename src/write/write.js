@@ -1,12 +1,38 @@
-// Write mode - manual text input for translation
+// Write mode - terminal-style chat for translation
 
 console.log("Write mode loaded");
 
+const chatHistory = document.getElementById('chat-history');
 const input = document.getElementById('write-input');
-const status = document.getElementById('status');
+const closeBtn = document.getElementById('close-btn');
+
+let hasMessages = false;
+
+function removeEmptyState() {
+    if (!hasMessages) {
+        const emptyState = chatHistory.querySelector('.empty-state');
+        if (emptyState) {
+            emptyState.remove();
+            hasMessages = true;
+        }
+    }
+}
+
+function scrollToBottom() {
+    chatHistory.scrollTop = chatHistory.scrollHeight;
+}
+
+function closeWindow() {
+    chatHistory.innerHTML = '<div class="empty-state">Type text and press Enter to translate...</div>';
+    hasMessages = false;
+    window.__TAURI__.core.invoke('hide_window', { label: 'write' });
+}
 
 // Auto-focus on load
 input?.focus();
+
+// Close button
+closeBtn?.addEventListener('click', closeWindow);
 
 input?.addEventListener('keydown', async (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -14,28 +40,90 @@ input?.addEventListener('keydown', async (e) => {
         const text = input.value.trim();
         if (!text) return;
 
-        // Show translating status
-        status.classList.add('visible');
+        removeEmptyState();
+
+        // Create message entry container
+        const entry = document.createElement('div');
+        entry.className = 'message-entry';
+
+        // Original text (small, gray)
+        const originalEl = document.createElement('div');
+        originalEl.className = 'original-text';
+        originalEl.textContent = text;
+        entry.appendChild(originalEl);
+
+        // Loading placeholder
+        const loadingEl = document.createElement('div');
+        loadingEl.className = 'loading-text';
+        loadingEl.textContent = 'Translating';
+        entry.appendChild(loadingEl);
+
+        chatHistory.appendChild(entry);
+        input.value = '';
         input.disabled = true;
+        scrollToBottom();
 
         try {
-            // Invoke translate_text command
-            const result = await window.__TAURI__.core.invoke('translate_text', { text });
+            const result = await window.__TAURI__.core.invoke('translate_chat', { text });
             console.log('Translation result:', result);
+
+            // Replace loading with translated text
+            loadingEl.remove();
+
+            const translatedEl = document.createElement('div');
+            translatedEl.className = 'translated-text';
+            translatedEl.textContent = result.translated;
+            entry.appendChild(translatedEl);
+
+            if (result.detected_source) {
+                const langEl = document.createElement('div');
+                langEl.className = 'detected-lang';
+                langEl.textContent = `Detected: ${result.detected_source}`;
+                entry.appendChild(langEl);
+            }
+
+            scrollToBottom();
+
         } catch (err) {
             console.error('Translation error:', err);
-            // Still close on error - let user retry
+            loadingEl.remove();
+
+            const errorEl = document.createElement('div');
+            errorEl.className = 'error-text';
+            errorEl.textContent = `Error: ${err}`;
+            entry.appendChild(errorEl);
+            scrollToBottom();
         }
-        // Note: write window is closed by Rust after translation completes
+
+        input.disabled = false;
+        input.focus();
+
     } else if (e.key === 'Escape') {
-        // Close without translating
-        window.__TAURI__.window.getCurrent().close();
+        closeWindow();
     }
 });
 
-// Handle window close via escape key also on window level
+// ESC at window level
 window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-        window.__TAURI__.window.getCurrent().close();
+    if (e.key === 'Escape') closeWindow();
+});
+
+// Focus input on window focus
+window.addEventListener('focus', () => {
+    input?.focus();
+});
+
+// Enable dragging on header
+const header = document.getElementById('header');
+header?.addEventListener('pointerdown', (e) => {
+    if (e.target.id === 'close-btn') return;
+    try {
+        const win = window.__TAURI__?.window?.getCurrentWindow?.()
+                 || window.__TAURI__?.webviewWindow?.getCurrentWindow?.();
+        if (win && typeof win.startDragging === 'function') {
+            win.startDragging();
+        }
+    } catch (err) {
+        console.error('Drag failed:', err);
     }
 });

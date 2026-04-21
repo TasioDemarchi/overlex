@@ -1,11 +1,11 @@
 // OCR module - Windows OCR API integration
 use windows::{
-    Foundation::IAsyncOperation,
+    Foundation::{Collections::IVectorView, IAsyncOperation},
     Globalization::Language,
     Graphics::Imaging::{
         BitmapDecoder, BitmapPixelFormat, SoftwareBitmap,
     },
-    Media::Ocr::OcrEngine,
+    Media::Ocr::{OcrEngine, OcrLine},
     Storage::Streams::{DataWriter, InMemoryRandomAccessStream},
 };
 
@@ -14,6 +14,78 @@ use windows::{
 pub struct OcrResult {
     pub text: String,
     pub confidence: f32,
+}
+
+/// Heuristic: decides whether consecutive OCR lines belong to the same
+/// paragraph (join with space) or are separate blocks (join with \n).
+///
+/// Rules:
+/// - A line that looks like a bullet/list item  (starts with -, •, *, #, or a digit+dot)
+///   is ALWAYS its own line.
+/// - A line whose previous line ended with sentence-terminal punctuation
+///   (. ! ? : — or similar) starts a new block.
+/// - Otherwise: join with a space (it's a wrapped paragraph).
+fn smart_join_lines(lines: &[String]) -> String {
+    if lines.is_empty() {
+        return String::new();
+    }
+
+    // Characters that signal the END of a logical block
+    fn is_block_end(s: &str) -> bool {
+        let s = s.trim_end();
+        if s.is_empty() { return true; }
+        matches!(s.chars().last().unwrap(),
+            '.' | '!' | '?' | ':' | ';' | '…' | '—' | '-')
+    }
+
+    // A line that is clearly a list item or heading — always its own line
+    fn is_structural(s: &str) -> bool {
+        let t = s.trim_start();
+        if t.starts_with('-')
+            || t.starts_with('•')
+            || t.starts_with('*')
+            || t.starts_with('#')
+        {
+            return true;
+        }
+        // "1. foo" / "2) foo"
+        let mut chars = t.chars();
+        if let Some(c) = chars.next() {
+            if c.is_ascii_digit() {
+                if let Some(next) = chars.next() {
+                    if next == '.' || next == ')' {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    let mut result = String::new();
+    let mut iter = lines.iter().peekable();
+
+    while let Some(current) = iter.next() {
+        result.push_str(current);
+
+        match iter.peek() {
+            None => {} // last line — nothing to append
+            Some(next) => {
+                // Decide separator: \n or space
+                let needs_newline = is_structural(current)
+                    || is_structural(next)
+                    || is_block_end(current);
+
+                if needs_newline {
+                    result.push('\n');
+                } else {
+                    result.push(' ');
+                }
+            }
+        }
+    }
+
+    result
 }
 
 /// Perform OCR on image region using Windows.Media.Ocr
@@ -64,8 +136,19 @@ pub async fn ocr_region(image_data: &[u8]) -> Result<OcrResult, String> {
         .map_err(|e| format!("Failed to recognize: {}", e))?;
     let ocr_result = result_op.get().map_err(|e| format!("Failed to complete recognition: {}", e))?;
 
-    // Extract text from lines - use FindAllElements to get line text
-    let text = ocr_result.Text().map_err(|e| format!("Failed to get text: {}", e))?.to_string();
+    // Extract text from lines - use Lines() then smart-join into paragraphs
+    let lines: IVectorView<OcrLine> = ocr_result.Lines().map_err(|e| format!("Failed to get lines: {}", e))?;
+    let count = lines.Size().map_err(|e| format!("Failed to get line count: {}", e))?;
+    let mut raw_lines: Vec<String> = Vec::new();
+    for i in 0..count {
+        let line = lines.GetAt(i).map_err(|e| format!("Failed to get line {}: {}", i, e))?;
+        let line_text = line.Text().map_err(|e| format!("Failed to get line text: {}", e))?.to_string();
+        let trimmed = line_text.trim().to_string();
+        if !trimmed.is_empty() {
+            raw_lines.push(trimmed);
+        }
+    }
+    let text = smart_join_lines(&raw_lines);
 
     Ok(OcrResult {
         text,

@@ -1,10 +1,12 @@
 // Translation module - translation engine trait and adapters
 
+mod google_gtx;
 mod libretranslate;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
+pub use google_gtx::GoogleGtxAdapter;
 pub use libretranslate::LibreTranslateAdapter;
 
 /// Translation engine trait

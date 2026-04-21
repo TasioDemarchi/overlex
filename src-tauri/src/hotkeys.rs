@@ -229,4 +229,27 @@ mod tests {
         let result = parse_hotkey("NOT+A+VALID+HOTKEY");
         assert!(result.is_err());
     }
+
+    #[test]
+    fn test_parse_hotkey_ctrl_alt_f1() {
+        let result = parse_hotkey("CTRL+ALT+F1");
+        assert!(result.is_ok());
+        let (modifiers, vk) = result.unwrap();
+        assert_eq!(modifiers, MOD_CONTROL | MOD_ALT);
+        assert_eq!(vk, windows::Win32::UI::Input::KeyboardAndMouse::VK_F1);
+    }
+
+    #[test]
+    fn test_parse_hotkey_single_key_no_modifier() {
+        // Single key without modifier should fail
+        let result = parse_hotkey("T");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_hotkey_empty() {
+        // Empty string should fail
+        let result = parse_hotkey("");
+        assert!(result.is_err());
+    }
 }

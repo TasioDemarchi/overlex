@@ -1,0 +1,21 @@
+{
+  "$schema": "https://schema.tauri.app/capabilities",
+  "identifier": "default",
+  "description": "Default capabilities for OverLex",
+  "windows": ["*"],
+  "permissions": [
+    "core:default",
+    "core:event:default",
+    "core:event:allow-listen",
+    "core:event:allow-emit",
+    "core:window:default",
+    "core:window:allow-outer-position",
+    "core:window:allow-start-dragging",
+    "core:window:allow-set-position",
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "core:window:allow-set-focus",
+    "core:window:allow-set-size",
+    "core:window:allow-center"
+  ]
+}
