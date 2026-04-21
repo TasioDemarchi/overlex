@@ -78,14 +78,19 @@ impl TranslationEngine for GoogleGtxAdapter {
             .await
             .map_err(|e| TranslationError::Network(format!("Failed to parse response: {}", e)))?;
 
-        // Extract translated text from response[0][0][0]
-        let translated = json
+        // Extract translated text — response[0] is an array of segments,
+        // each segment is [translated_chunk, original_chunk, ...].
+        // Must concatenate ALL segments to get the full translation.
+        let segments = json
             .get(0)
-            .and_then(|v| v.get(0))
-            .and_then(|v| v.get(0))
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string())
-            .ok_or_else(|| TranslationError::Network("Failed to parse translated text from response".to_string()))?;
+            .and_then(|v| v.as_array())
+            .ok_or_else(|| TranslationError::Network("Failed to parse translation segments".to_string()))?;
+
+        let translated: String = segments
+            .iter()
+            .filter_map(|seg| seg.get(0).and_then(|v| v.as_str()))
+            .collect::<Vec<&str>>()
+            .join("");
 
         // Extract detected language from response[2]
         let detected_source = json
