@@ -36,10 +36,40 @@
             height: 32px;
             display: flex;
             align-items: center;
-            justify-content: flex-end;
-            padding: 0 4px;
+            justify-content: space-between;
+            padding: 0 8px;
             cursor: grab;
             -webkit-app-region: drag;
+        }
+
+        #lang-indicator {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            -webkit-app-region: no-drag;
+        }
+
+        #lang-display {
+            font-size: 11px;
+            color: #888;
+            font-weight: 500;
+            text-transform: uppercase;
+            -webkit-app-region: drag;
+        }
+
+        #swap-btn {
+            background: none;
+            border: none;
+            color: #666;
+            font-size: 14px;
+            cursor: pointer;
+            padding: 2px 4px;
+            border-radius: 2px;
+            transition: color 0.15s, background 0.15s;
+        }
+        #swap-btn:hover {
+            color: #fff;
+            background: rgba(255,255,255,0.1);
         }
 
         #close-btn {
@@ -48,6 +78,7 @@
             color: #666;
             font-size: 16px;
             cursor: pointer;
+            -webkit-app-region: no-drag;
         }
         #close-btn:hover { color: #fff; }
 
@@ -156,6 +187,10 @@
 <body>
     <div id="app-wrapper">
         <div id="header">
+            <div id="lang-indicator">
+                <span id="lang-display">AUTO → ES</span>
+                <button id="swap-btn" title="Swap languages (Ctrl+Shift+←)">⇄</button>
+            </div>
             <button id="close-btn">&times;</button>
         </div>
         <div id="chat-history">

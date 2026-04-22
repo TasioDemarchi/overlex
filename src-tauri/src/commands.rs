@@ -6,6 +6,13 @@ use tauri::{Emitter, Manager, Position};
 
 use crate::{capture, ocr, ResultPayload, SettingsState, ScreenshotState, TranslationState, FocusRestoreState, settings};
 
+/// Language swap result payload
+#[derive(serde::Serialize, Clone)]
+pub struct LanguageSwapResult {
+    pub source_lang: String,
+    pub target_lang: String,
+}
+
 /// Position the result window based on settings.
 /// For "near-selection": uses the selection coordinates passed (x, y, width, height).
 /// For corner positions: calculates position based on screen size.
@@ -88,6 +95,47 @@ pub struct TranslationResult {
     pub original: String,
     pub translated: String,
     pub detected_source: Option<String>,
+}
+
+/// Swap source and target languages
+/// If source is "auto", it becomes the target language (or the old target if it wasn't "auto")
+#[tauri::command]
+pub async fn swap_languages(
+    settings_state: tauri::State<'_, SettingsState>,
+    app_handle: tauri::AppHandle,
+) -> Result<LanguageSwapResult, String> {
+    let mut settings = settings_state.settings.lock().unwrap().clone();
+
+    // Swap languages
+    let new_source = settings.target_lang.clone();
+    let new_target = if settings.source_lang == "auto" {
+        // If source was "auto", keep "auto" as target or switch to the old target?
+        // Convention: if source was "auto", swap so that the detected language becomes source
+        // For simplicity: keep auto as target, swap what we can
+        "auto".to_string()
+    } else {
+        settings.source_lang.clone()
+    };
+
+    settings.source_lang = new_source.clone();
+    settings.target_lang = new_target.clone();
+
+    // Save to disk
+    settings::save_settings_to_disk(&settings)?;
+
+    // Update in-memory state (already locked, just release)
+    *settings_state.settings.lock().unwrap() = settings;
+
+    let result = LanguageSwapResult {
+        source_lang: new_source.clone(),
+        target_lang: new_target.clone(),
+    };
+
+    // Emit event to all windows so they can update their UI
+    let _ = app_handle.emit("languages-swapped", &result);
+
+    eprintln!("Languages swapped: {} -> {}", new_source, new_target);
+    Ok(result)
 }
 
 /// Get current settings
@@ -175,6 +223,8 @@ pub async fn translate_text(
         translated: translated_result.translated.clone(),
         error: None,
         timeout_ms: settings.overlay_timeout_ms,
+        source_lang: settings.source_lang.clone(),
+        target_lang: settings.target_lang.clone(),
     };
 
     // Show result window and emit directly to it
@@ -316,6 +366,8 @@ pub async fn ocr_capture_region(
             translated: String::new(),
             error: Some("No text detected in selection".to_string()),
             timeout_ms: settings.overlay_timeout_ms,
+            source_lang: settings.source_lang.clone(),
+            target_lang: settings.target_lang.clone(),
         };
 
         // Try to emit directly to result window, fallback to global
@@ -392,6 +444,8 @@ pub async fn ocr_capture_region(
         translated: translation_result.translated.clone(),
         error: None,
         timeout_ms: settings.overlay_timeout_ms,
+        source_lang: settings.source_lang.clone(),
+        target_lang: settings.target_lang.clone(),
     };
 
     // Show result window and emit directly to it

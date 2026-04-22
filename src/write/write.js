@@ -5,6 +5,8 @@ console.log("Write mode loaded");
 const chatHistory = document.getElementById('chat-history');
 const input = document.getElementById('write-input');
 const closeBtn = document.getElementById('close-btn');
+const langDisplay = document.getElementById('lang-display');
+const swapBtn = document.getElementById('swap-btn');
 
 let hasMessages = false;
 
@@ -31,8 +33,49 @@ function closeWindow() {
 // Auto-focus on load
 input?.focus();
 
+// Load current settings and update language indicator on mount
+(async function initLangIndicator() {
+    try {
+        const settings = await window.__TAURI__.core.invoke('get_settings');
+        const sourceUpper = (settings.source_lang === 'auto' ? 'AUTO' : settings.source_lang.toUpperCase());
+        const targetUpper = settings.target_lang.toUpperCase();
+        langDisplay.textContent = `${sourceUpper} → ${targetUpper}`;
+    } catch (e) {
+        console.error('Failed to load settings:', e);
+    }
+})();
+
 // Close button
 closeBtn?.addEventListener('click', closeWindow);
+
+// Swap button
+swapBtn?.addEventListener('click', async () => {
+    try {
+        const result = await window.__TAURI__.core.invoke('swap_languages');
+        if (result) {
+            const sourceUpper = (result.source_lang === 'auto' ? 'AUTO' : result.source_lang.toUpperCase());
+            const targetUpper = result.target_lang.toUpperCase();
+            langDisplay.textContent = `${sourceUpper} → ${targetUpper}`;
+        }
+    } catch (e) {
+        console.error('Failed to swap languages:', e);
+    }
+});
+
+// Listen for languages-swapped event
+try {
+    const listen = window.__TAURI__?.event?.listen;
+    if (typeof listen === 'function') {
+        listen('languages-swapped', (event) => {
+            const { source_lang, target_lang } = event.payload;
+            const sourceUpper = (source_lang === 'auto' ? 'AUTO' : source_lang.toUpperCase());
+            const targetUpper = target_lang.toUpperCase();
+            langDisplay.textContent = `${sourceUpper} → ${targetUpper}`;
+        });
+    }
+} catch (err) {
+    console.warn('Tauri event listen not available:', err);
+}
 
 input?.addEventListener('keydown', async (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -116,7 +159,7 @@ window.addEventListener('focus', () => {
 // Enable dragging on header
 const header = document.getElementById('header');
 header?.addEventListener('pointerdown', (e) => {
-    if (e.target.id === 'close-btn') return;
+    if (e.target.id === 'close-btn' || e.target.id === 'swap-btn') return;
     try {
         const win = window.__TAURI__?.window?.getCurrentWindow?.()
                  || window.__TAURI__?.webviewWindow?.getCurrentWindow?.();

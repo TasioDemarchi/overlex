@@ -8,6 +8,11 @@ const errorEl = document.getElementById('error');
 const dismissBtn = document.getElementById('dismiss-btn');
 const originalToggle = document.getElementById('original-toggle');
 const originalSection = document.getElementById('original-section');
+const langDisplay = document.getElementById('lang-display');
+const swapBtn = document.getElementById('swap-btn');
+
+// Store current original text for re-translation
+let __currentOriginal = '';
 
 // Timer state
 let __dismissTimerId = null;
@@ -84,6 +89,18 @@ window.onTranslationResult = function(payload) {
     startDismissTimer(window.__overlexTimeoutMs);
     loadingEl.style.display = 'none';
 
+    // Update language indicator from payload (fall back to displayed source)
+    if (payload.source_lang && payload.target_lang) {
+        const sourceUpper = (payload.source_lang === 'auto' ? 'AUTO' : payload.source_lang.toUpperCase());
+        const targetUpper = payload.target_lang.toUpperCase();
+        langDisplay.textContent = `${sourceUpper} → ${targetUpper}`;
+    }
+
+    // Store original text for re-translation
+    if (payload.original) {
+        window.__currentOriginal = payload.original;
+    }
+
     if (payload.error) {
         errorEl.textContent = payload.error;
         errorEl.style.display = 'block';
@@ -115,6 +132,12 @@ try {
     if (typeof listen === 'function') {
         listen('translation-result', (event) => window.onTranslationResult(event.payload));
         listen('overlex-error', (event) => window.onOverlexError(event.payload));
+        listen('languages-swapped', (event) => {
+            const { source_lang, target_lang } = event.payload;
+            const sourceUpper = (source_lang === 'auto' ? 'AUTO' : source_lang.toUpperCase());
+            const targetUpper = target_lang.toUpperCase();
+            langDisplay.textContent = `${sourceUpper} → ${targetUpper}`;
+        });
     }
 } catch (err) {
     console.warn('Tauri event listen not available:', err);
@@ -123,6 +146,45 @@ try {
 // Dismiss button
 dismissBtn.addEventListener('click', async () => {
     try { await window.__TAURI__?.core?.invoke('dismiss_result'); } catch (e) { console.error('Failed to dismiss:', e); }
+});
+
+// Swap button - swap languages and re-translate
+swapBtn.addEventListener('click', async () => {
+    const originalText = window.__currentOriginal;
+    if (!originalText) {
+        console.warn('No original text to re-translate');
+        return;
+    }
+
+    try {
+        // Call swap_languages command
+        const result = await window.__TAURI__?.core?.invoke('swap_languages');
+        if (result) {
+            // Update display immediately (will be confirmed by event)
+            const sourceUpper = (result.source_lang === 'auto' ? 'AUTO' : result.source_lang.toUpperCase());
+            const targetUpper = result.target_lang.toUpperCase();
+            langDisplay.textContent = `${sourceUpper} → ${targetUpper}`;
+
+            // Re-translate with the NEW direction
+            const translateResult = await window.__TAURI__?.core?.invoke('translate_chat', {
+                text: originalText
+            });
+
+            if (translateResult) {
+                // Update the translated text
+                translatedEl.textContent = translateResult.translated;
+                originalEl.textContent = originalText;
+
+                if (translateResult.detected_source) {
+                    // Update indicator if source was auto-detected
+                    const detected = translateResult.detected_source.toUpperCase();
+                    langDisplay.textContent = `${detected} → ${result.target_lang.toUpperCase()}`;
+                }
+            }
+        }
+    } catch (e) {
+        console.error('Failed to swap languages:', e);
+    }
 });
 
 // ESC key
@@ -146,7 +208,7 @@ document.addEventListener('keydown', async (e) => {
     dragBar.style.cursor = 'grab';
 
     dragBar.addEventListener('pointerdown', async (e) => {
-        if (e.target.id === 'dismiss-btn') return;
+        if (e.target.id === 'dismiss-btn' || e.target.id === 'swap-btn') return;
 
         isDragging = true;
         dragStartX = e.screenX;

@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex};
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager, Runtime, Listener, Position, LogicalPosition,
+    Manager, Runtime, Listener, Position, LogicalPosition, Emitter,
 };
 use image::{ImageBuffer, Rgba, ImageEncoder};
 use translation::TranslationEngine;
@@ -53,6 +53,8 @@ pub struct ResultPayload {
     pub translated: String,
     pub error: Option<String>,
     pub timeout_ms: u32,
+    pub source_lang: String,
+    pub target_lang: String,
 }
 
 fn setup_tray<R: Runtime>(app: &tauri::App<R>) -> Result<(), Box<dyn std::error::Error>> {
@@ -316,6 +318,47 @@ pub fn run() {
                 }
             });
 
+            // Listen for swap-languages event from global hotkey
+            let app_handle_swap = app.handle().clone();
+            app.listen("swap-languages", move |_event| {
+                let handle = app_handle_swap.clone();
+                tauri::async_runtime::spawn(async move {
+                    // Get settings state to swap languages
+                    if let Some(settings_state) = handle.try_state::<SettingsState>() {
+                        let mut settings = settings_state.settings.lock().unwrap().clone();
+
+                        // Swap source and target
+                        let new_source = settings.target_lang.clone();
+                        let new_target = if settings.source_lang == "auto" {
+                            "auto".to_string()
+                        } else {
+                            settings.source_lang.clone()
+                        };
+
+                        settings.source_lang = new_source.clone();
+                        settings.target_lang = new_target.clone();
+
+                        // Save to disk and emit event
+                        if let Err(e) = settings::save_settings_to_disk(&settings) {
+                            eprintln!("Failed to save swapped settings: {}", e);
+                            return;
+                        }
+
+                        *settings_state.settings.lock().unwrap() = settings;
+
+                        let payload = serde_json::json!({
+                            "source_lang": new_source,
+                            "target_lang": new_target
+                        });
+
+                        // Emit to all windows
+                        let _ = handle.emit("languages-swapped", payload);
+
+                        eprintln!("Languages swapped via hotkey: {} -> {}", new_source, new_target);
+                    }
+                });
+            });
+
             // Get the result window and apply WS_EX_NOACTIVATE
             if let Some(result_window) = app.get_webview_window("result") {
                 #[cfg(target_os = "windows")]
@@ -355,6 +398,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::get_settings,
             commands::save_settings,
+            commands::swap_languages,
             commands::translate_text,
             commands::translate_chat,
             commands::ocr_capture_region,
