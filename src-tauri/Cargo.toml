@@ -20,6 +20,7 @@ reqwest = { version = "0.12", features = ["json"] }
 base64 = "0.22"
 image = "0.25"
 keyring = "3"
+rusqlite = { version = "0.31", features = ["bundled"] }
 async-trait = "0.1"
 window-vibrancy = "0.7.1"
 windows = { version = "0.58", features = [

@@ -17,6 +17,25 @@ const startWithWindowsCheckbox = document.getElementById('start-with-windows');
 const saveBtn = document.getElementById('save-btn');
 const messageEl = document.getElementById('message');
 
+// OCR pre-processing elements
+const ocrPreprocessingCheckbox = document.getElementById('ocr-preprocessing-enabled');
+const ocrBinarizeCheckbox = document.getElementById('ocr-binarize-enabled');
+
+// History elements
+const historyEnabledCheckbox = document.getElementById('history-enabled');
+const historyPanel = document.getElementById('history-panel');
+const historySearchInput = document.getElementById('history-search');
+const historyList = document.getElementById('history-list');
+const historyLoadMoreBtn = document.getElementById('history-load-more');
+const historyExportJsonBtn = document.getElementById('history-export-json');
+const historyExportCsvBtn = document.getElementById('history-export-csv');
+const historyClearBtn = document.getElementById('history-clear');
+
+// History state
+let historyOffset = 0;
+let historyHasMore = true;
+let currentSettings = null;
+
 // Show message (success or error)
 function showMessage(text, isError = false) {
     messageEl.textContent = text;
@@ -66,6 +85,157 @@ function setupHotkeyCapture(inputElement) {
     });
 }
 
+// Render a single history entry
+function renderHistoryEntry(entry) {
+    const div = document.createElement('div');
+    div.className = 'history-entry';
+    div.dataset.id = entry.id;
+
+    const createdAt = entry.created_at ? new Date(entry.created_at).toLocaleString() : '';
+
+    div.innerHTML = `
+        <div class="original">${escapeHtml(entry.original_text)}</div>
+        <div class="translated">${escapeHtml(entry.translated_text)}</div>
+        <div class="meta">
+            <span>${entry.source_lang} → ${entry.target_lang} • ${createdAt}</span>
+            <button class="delete-btn" data-id="${entry.id}">Delete</button>
+        </div>
+    `;
+
+    // Delete button handler
+    div.querySelector('.delete-btn').addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const id = parseInt(e.target.dataset.id);
+        if (confirm('Delete this history entry?')) {
+            try {
+                await invoke('delete_history_entry', { id });
+                renderHistory();
+            } catch (err) {
+                showMessage('Failed to delete: ' + err, true);
+            }
+        }
+    });
+
+    return div;
+}
+
+// Escape HTML to prevent XSS
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Render history list
+async function renderHistory() {
+    if (!currentSettings || !currentSettings.history_enabled) {
+        historyList.innerHTML = '<div style="color: var(--text-secondary); padding: 8px;">History disabled</div>';
+        return;
+    }
+
+    try {
+        const limit = 20;
+        const entries = await invoke('get_history', { limit, offset: historyOffset });
+
+        if (historyOffset === 0) {
+            historyList.innerHTML = '';
+        }
+
+        if (entries.length === 0 && historyOffset === 0) {
+            historyList.innerHTML = '<div style="color: var(--text-secondary); padding: 8px;">No history yet</div>';
+            historyHasMore = false;
+        } else {
+            entries.forEach(entry => {
+                historyList.appendChild(renderHistoryEntry(entry));
+            });
+            historyHasMore = entries.length >= limit;
+        }
+
+        historyLoadMoreBtn.style.display = historyHasMore ? 'inline-block' : 'none';
+    } catch (err) {
+        historyList.innerHTML = '<div style="color: var(--error); padding: 8px;">Failed to load history: ' + escapeHtml(err) + '</div>';
+        historyHasMore = false;
+    }
+}
+
+// Search history
+let searchTimeout = null;
+async function searchHistory() {
+    const query = historySearchInput.value.trim();
+
+    if (!currentSettings || !currentSettings.history_enabled) {
+        return;
+    }
+
+    try {
+        if (query) {
+            const entries = await invoke('search_history', { query });
+            historyList.innerHTML = '';
+            if (entries.length === 0) {
+                historyList.innerHTML = '<div style="color: var(--text-secondary); padding: 8px;">No matches found</div>';
+            } else {
+                entries.forEach(entry => {
+                    historyList.appendChild(renderHistoryEntry(entry));
+                });
+            }
+            historyHasMore = false;
+            historyLoadMoreBtn.style.display = 'none';
+        } else {
+            historyOffset = 0;
+            await renderHistory();
+        }
+    } catch (err) {
+        showMessage('Search failed: ' + err, true);
+    }
+}
+
+// Export history
+async function exportHistory(format) {
+    if (!currentSettings || !currentSettings.history_enabled) {
+        showMessage('History is disabled', true);
+        return;
+    }
+
+    try {
+        const data = await invoke('export_history', { format });
+
+        // Create download
+        const blob = new Blob([data], { type: format === 'json' ? 'application/json' : 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `overlex-history.${format}`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        showMessage('Export complete');
+    } catch (err) {
+        showMessage('Export failed: ' + err, true);
+    }
+}
+
+// Clear all history
+async function clearHistory() {
+    if (!currentSettings || !currentSettings.history_enabled) {
+        return;
+    }
+
+    if (!confirm('Are you sure you want to delete ALL translation history? This cannot be undone.')) {
+        return;
+    }
+
+    try {
+        await invoke('clear_history');
+        historyOffset = 0;
+        await renderHistory();
+        showMessage('History cleared');
+    } catch (err) {
+        showMessage('Failed to clear history: ' + err, true);
+    }
+}
+
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', async () => {
     // Setup hotkey capture
@@ -84,9 +254,43 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
 
+    // Setup OCR pre-processing toggle
+    ocrPreprocessingCheckbox.addEventListener('change', () => {
+        // Binarize only makes sense if preprocessing is enabled
+        if (!ocrPreprocessingCheckbox.checked) {
+            ocrBinarizeCheckbox.checked = false;
+        }
+        ocrBinarizeCheckbox.disabled = !ocrPreprocessingCheckbox.checked;
+    });
+
+    // Setup history toggle
+    historyEnabledCheckbox.addEventListener('change', () => {
+        historyPanel.style.display = historyEnabledCheckbox.checked ? 'block' : 'none';
+        if (historyEnabledCheckbox.checked) {
+            renderHistory();
+        }
+    });
+
+    // Setup history search
+    historySearchInput.addEventListener('input', () => {
+        clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(searchHistory, 300);
+    });
+
+    // Setup history buttons
+    historyLoadMoreBtn.addEventListener('click', async () => {
+        historyOffset += 20;
+        await renderHistory();
+    });
+
+    historyExportJsonBtn.addEventListener('click', () => exportHistory('json'));
+    historyExportCsvBtn.addEventListener('click', () => exportHistory('csv'));
+    historyClearBtn.addEventListener('click', clearHistory);
+
     // Load current settings
     try {
         const settings = await invoke('get_settings');
+        currentSettings = settings;
 
         // Populate form fields
         ocrHotkeyInput.value = settings.ocr_hotkey || '';
@@ -95,7 +299,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         targetLangSelect.value = settings.target_lang || 'es';
         engineSelect.value = settings.engine || 'libretranslate';
         overlayPositionSelect.value = settings.overlay_position || 'near-selection';
-        
+
         // Handle auto-dismiss: if timeout > 0, check and show; if 0, uncheck and hide
         if (settings.overlay_timeout_ms > 0) {
             autoDismissEnabledCheckbox.checked = true;
@@ -106,8 +310,22 @@ document.addEventListener('DOMContentLoaded', async () => {
             timeoutGroup.style.display = 'none';
             overlayTimeoutInput.value = 5000;
         }
-        
+
         startWithWindowsCheckbox.checked = settings.start_with_windows || false;
+
+        // OCR pre-processing settings
+        ocrPreprocessingCheckbox.checked = settings.ocr_preprocessing !== false;
+        ocrBinarizeCheckbox.checked = settings.ocr_binarize === true;
+        ocrBinarizeCheckbox.disabled = !ocrPreprocessingCheckbox.checked;
+
+        // History settings
+        historyEnabledCheckbox.checked = settings.history_enabled !== false;
+        historyPanel.style.display = historyEnabledCheckbox.checked ? 'block' : 'none';
+
+        // Load history if enabled
+        if (historyEnabledCheckbox.checked) {
+            renderHistory();
+        }
 
         // Load API key (if any)
         try {
@@ -135,11 +353,16 @@ saveBtn.addEventListener('click', async () => {
         engine: engineSelect.value,
         overlay_position: overlayPositionSelect.value,
         // If checkbox unchecked, send 0 (never dismiss). If checked, send the value or default 5000
-        overlay_timeout_ms: autoDismissEnabledCheckbox.checked 
-            ? (parseInt(overlayTimeoutInput.value) || 5000) 
+        overlay_timeout_ms: autoDismissEnabledCheckbox.checked
+            ? (parseInt(overlayTimeoutInput.value) || 5000)
             : 0,
         start_with_windows: startWithWindowsCheckbox.checked,
         libre_translate_url: 'https://libretranslate.com', // Default URL
+        // OCR pre-processing
+        ocr_preprocessing: ocrPreprocessingCheckbox.checked,
+        ocr_binarize: ocrBinarizeCheckbox.checked,
+        // History
+        history_enabled: historyEnabledCheckbox.checked,
     };
 
     // Validate hotkeys are set
@@ -162,6 +385,15 @@ saveBtn.addEventListener('click', async () => {
                 engine: settings.engine,
                 key: apiKeyInput.value
             });
+        }
+
+        // Update current settings
+        currentSettings = settings;
+
+        // Refresh history view if enabled
+        if (settings.history_enabled) {
+            historyOffset = 0;
+            await renderHistory();
         }
 
         showMessage('Settings saved successfully!');

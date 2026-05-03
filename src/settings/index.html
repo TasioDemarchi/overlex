@@ -125,6 +125,62 @@
             border-radius: 8px;
             margin-bottom: 16px;
         }
+        .small-btn {
+            padding: 6px 12px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            color: var(--text-primary);
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .small-btn:hover {
+            background: var(--border);
+        }
+        .small-btn.danger {
+            color: var(--error);
+            border-color: var(--error);
+        }
+        .small-btn.danger:hover {
+            background: rgba(255, 107, 107, 0.15);
+        }
+        .history-entry {
+            padding: 8px 10px;
+            border-bottom: 1px solid var(--border);
+            font-size: 0.85rem;
+        }
+        .history-entry:last-child {
+            border-bottom: none;
+        }
+        .history-entry .original {
+            color: var(--text-secondary);
+            margin-bottom: 4px;
+            word-break: break-word;
+        }
+        .history-entry .translated {
+            color: var(--accent);
+            margin-bottom: 4px;
+            word-break: break-word;
+        }
+        .history-entry .meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+        }
+        .history-entry .delete-btn {
+            background: none;
+            border: none;
+            color: var(--error);
+            cursor: pointer;
+            font-size: 0.75rem;
+            padding: 2px 6px;
+        }
+        .history-entry .delete-btn:hover {
+            text-decoration: underline;
+        }
     </style>
 </head>
 <body>
@@ -216,6 +272,54 @@
         <div class="form-group" id="timeout-group" style="display:none;">
             <label for="overlay-timeout">Dismiss after (ms)</label>
             <input type="number" id="overlay-timeout" min="500" max="30000" step="500" />
+        </div>
+    </div>
+
+    <!-- OCR Pre-processing Section -->
+    <h2>OCR Pre-processing</h2>
+    <div class="section">
+        <div class="form-group">
+            <label class="checkbox-label">
+                <input type="checkbox" id="ocr-preprocessing-enabled" />
+                Enable image pre-processing
+            </label>
+            <small style="color: var(--text-secondary); display: block; margin-top: 4px;">
+                Improves OCR accuracy on low-contrast text (grayscale, contrast stretch)
+            </small>
+        </div>
+        <div class="form-group">
+            <label class="checkbox-label">
+                <input type="checkbox" id="ocr-binarize-enabled" />
+                Enable binarization (Otsu threshold)
+            </label>
+            <small style="color: var(--text-secondary); display: block; margin-top: 4px;">
+                Converts to black & white. Best for very dark/light backgrounds
+            </small>
+        </div>
+    </div>
+
+    <!-- History Section -->
+    <h2>Translation History</h2>
+    <div class="section">
+        <div class="form-group">
+            <label class="checkbox-label">
+                <input type="checkbox" id="history-enabled" />
+                Enable translation history
+            </label>
+        </div>
+        <div id="history-panel" style="margin-top: 12px;">
+            <div class="form-group">
+                <input type="text" id="history-search" placeholder="Search history..." style="margin-bottom: 8px;" />
+            </div>
+            <div id="history-list" style="max-height: 200px; overflow-y: auto; margin-bottom: 8px;">
+                <!-- History entries will be populated here -->
+            </div>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                <button id="history-load-more" class="small-btn">Load More</button>
+                <button id="history-export-json" class="small-btn">Export JSON</button>
+                <button id="history-export-csv" class="small-btn">Export CSV</button>
+                <button id="history-clear" class="small-btn danger">Clear All</button>
+            </div>
         </div>
     </div>
 

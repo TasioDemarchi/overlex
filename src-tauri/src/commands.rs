@@ -1,10 +1,11 @@
 // Commands module - all Tauri command handlers
 
+use std::sync::Arc;
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Manager, Position};
 
-use crate::{capture, ocr, ResultPayload, SettingsState, ScreenshotState, TranslationState, FocusRestoreState, settings};
+use crate::{capture, history, history::HistoryEntry, ocr, ResultPayload, SettingsState, ScreenshotState, TranslationState, FocusRestoreState, HistoryState, settings, translation::TranslationEngine};
 
 /// Language swap result payload
 #[derive(serde::Serialize, Clone)]
@@ -61,6 +62,44 @@ pub struct ErrorPayload {
     pub message: String,
 }
 
+/// Emit an error to the result window with guaranteed delivery.
+/// Tries to emit via Tauri event, then injects via eval() for guaranteed reception.
+fn emit_error(app_handle: &tauri::AppHandle, error: ErrorPayload, show_window: bool) {
+    if let Some(result_window) = app_handle.get_webview_window("result") {
+        if show_window {
+            let _ = result_window.show();
+        }
+        let _ = result_window.emit("overlex-error", error.clone());
+        if let Ok(json) = serde_json::to_string(&error) {
+            let _ = result_window.eval(&format!(
+                "if (window.onOverlexError) window.onOverlexError({});",
+                json
+            ));
+        }
+    } else {
+        let _ = app_handle.emit("overlex-error", error);
+    }
+}
+
+/// Emit a translation result to the result window with guaranteed delivery.
+/// Tries to emit via Tauri event, then injects via eval() for guaranteed reception.
+fn emit_result(app_handle: &tauri::AppHandle, payload: &ResultPayload, show_window: bool) {
+    if let Some(result_window) = app_handle.get_webview_window("result") {
+        if show_window {
+            let _ = result_window.show();
+        }
+        let _ = result_window.emit("translation-result", payload);
+        if let Ok(json) = serde_json::to_string(payload) {
+            let _ = result_window.eval(&format!(
+                "if (window.onTranslationResult) window.onTranslationResult({});",
+                json
+            ));
+        }
+    } else {
+        let _ = app_handle.emit("translation-result", payload);
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Settings {
     pub ocr_hotkey: String,
@@ -72,7 +111,15 @@ pub struct Settings {
     pub overlay_position: String,
     pub start_with_windows: bool,
     pub libre_translate_url: String,
+    #[serde(default = "default_true")]
+    pub ocr_preprocessing: bool,
+    #[serde(default)]
+    pub ocr_binarize: bool,
+    #[serde(default = "default_true")]
+    pub history_enabled: bool,
 }
+
+fn default_true() -> bool { true }
 
 impl Default for Settings {
     fn default() -> Self {
@@ -86,6 +133,9 @@ impl Default for Settings {
             overlay_position: "near-selection".to_string(),
             start_with_windows: false,
             libre_translate_url: "https://libretranslate.com".to_string(),
+            ocr_preprocessing: true,
+            ocr_binarize: false,
+            history_enabled: true,
         }
     }
 }
@@ -151,10 +201,23 @@ pub async fn save_settings(
     settings: Settings,
     settings_state: tauri::State<'_, SettingsState>,
     hotkey_state: tauri::State<'_, std::sync::Mutex<crate::hotkeys::HotkeyState>>,
+    translation_state: tauri::State<'_, TranslationState>,
     app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
     // Validate hotkeys
     settings::validate_hotkeys(&settings)?;
+
+    // Check if engine changed — swap the translation engine at runtime if so
+    let old_settings = settings_state.settings.lock().unwrap().clone();
+    let engine_changed = old_settings.engine != settings.engine
+        || (settings.engine == "libretranslate" && old_settings.libre_translate_url != settings.libre_translate_url);
+
+    if engine_changed {
+        let new_engine: Arc<dyn TranslationEngine> = Arc::from(crate::translation::create_engine(&settings));
+        let mut engine_guard = translation_state.engine.write().unwrap();
+        *engine_guard = new_engine;
+        eprintln!("[SETTINGS] Translation engine swapped to: {}", settings.engine);
+    }
 
     // Save to disk
     settings::save_settings_to_disk(&settings)?;
@@ -176,37 +239,24 @@ pub async fn translate_text(
     translation_state: tauri::State<'_, TranslationState>,
     settings_state: tauri::State<'_, SettingsState>,
     focus_state: tauri::State<'_, FocusRestoreState>,
+    _history_state: tauri::State<'_, HistoryState>,
     app_handle: tauri::AppHandle,
 ) -> Result<TranslationResult, String> {
     // Get settings
     let settings = settings_state.settings.lock().unwrap().clone();
 
-    // Call translation engine
-    let result = match translation_state
-        .engine
+    // Call translation engine (acquire read lock, clone Arc, release lock before async call)
+    let engine = translation_state.engine.read().unwrap().clone();
+    let result = match engine
         .translate(&text, &settings.source_lang, &settings.target_lang)
         .await
     {
         Ok(r) => r,
         Err(e) => {
-            let err_payload = ErrorPayload {
+            emit_error(&app_handle, ErrorPayload {
                 code: "NETWORK_ERROR".to_string(),
                 message: e.to_string(),
-            };
-            // Try to emit to result window, fallback to global
-            if let Some(result_window) = app_handle.get_webview_window("result") {
-                let _ = result_window.emit("overlex-error", err_payload.clone());
-                // Show and deliver error via eval for guaranteed delivery
-                let _ = result_window.show();
-                if let Ok(json_err) = serde_json::to_string(&err_payload) {
-                    let _ = result_window.eval(&format!(
-                        "if (window.onOverlexError) window.onOverlexError({});",
-                        json_err
-                    ));
-                }
-            } else {
-                let _ = app_handle.emit("overlex-error", err_payload);
-            }
+            }, true);
             return Err(e.to_string());
         }
     };
@@ -229,22 +279,9 @@ pub async fn translate_text(
 
     // Show result window and emit directly to it
     if let Some(result_window) = app_handle.get_webview_window("result") {
-        let _ = result_window.show();
-
-        // Position the result window based on settings
         position_result_window(&result_window, &settings, &None, 0, 0, 0, 0);
-
-        // Emit directly to result window (not globally)
-        let _ = result_window.emit("translation-result", &payload);
-
-        // Guaranteed delivery via eval
-        if let Ok(json_payload) = serde_json::to_string(&payload) {
-            let _ = result_window.eval(&format!(
-                "if (window.onTranslationResult) window.onTranslationResult({});",
-                json_payload
-            ));
-        }
     }
+    emit_result(&app_handle, &payload, true);
 
     // Close write window and restore focus to previous app
     if let Some(write_win) = app_handle.get_webview_window("write") {
@@ -261,6 +298,24 @@ pub async fn translate_text(
         if let Some(raw_hwnd) = stored {
             unsafe { let _ = SetForegroundWindow(HWND(raw_hwnd as *mut _)); }
         }
+    }
+
+    // Save to history (fire-and-forget if enabled)
+    if settings.history_enabled {
+        let entry = history::HistoryEntry {
+            id: 0,
+            original_text: translated_result.original.clone(),
+            translated_text: translated_result.translated.clone(),
+            source_lang: settings.source_lang.clone(),
+            target_lang: settings.target_lang.clone(),
+            engine: settings.engine.clone(),
+            created_at: String::new(),
+        };
+        let _ = tokio::task::spawn_blocking(move || {
+            if let Err(e) = history::HistoryDb::insert(&entry) {
+                eprintln!("[HISTORY] Failed to save entry: {}", e);
+            }
+        });
     }
 
     Ok(translated_result)
@@ -282,24 +337,10 @@ pub async fn ocr_capture_region(
     let screenshot = match screenshot_state.png_data.lock().unwrap().clone() {
         Some(s) => s,
         None => {
-            let err_payload = ErrorPayload {
+            emit_error(&app_handle, ErrorPayload {
                 code: "OCR_ERROR".to_string(),
                 message: "No screenshot available. Start OCR flow first.".to_string(),
-            };
-            // Try to emit to result window, fallback to global
-            if let Some(result_window) = app_handle.get_webview_window("result") {
-                let _ = result_window.emit("overlex-error", err_payload.clone());
-                // Show and deliver error via eval for guaranteed delivery
-                let _ = result_window.show();
-                if let Ok(json_err) = serde_json::to_string(&err_payload) {
-                    let _ = result_window.eval(&format!(
-                        "if (window.onOverlexError) window.onOverlexError({});",
-                        json_err
-                    ));
-                }
-            } else {
-                let _ = app_handle.emit("overlex-error", err_payload);
-            }
+            }, true);
             return Err("No screenshot available. Start OCR flow first.".to_string());
         }
     };
@@ -308,50 +349,49 @@ pub async fn ocr_capture_region(
     let cropped_png = match capture::capture_region(&screenshot, x, y, width as u32, height as u32) {
         Ok(c) => c,
         Err(e) => {
-            let err_payload = ErrorPayload {
+            emit_error(&app_handle, ErrorPayload {
                 code: "OCR_ERROR".to_string(),
                 message: format!("Failed to capture region: {}", e),
-            };
-            // Try to emit to result window, fallback to global
-            if let Some(result_window) = app_handle.get_webview_window("result") {
-                let _ = result_window.emit("overlex-error", err_payload.clone());
-                // Show and deliver error via eval for guaranteed delivery
-                let _ = result_window.show();
-                if let Ok(json_err) = serde_json::to_string(&err_payload) {
-                    let _ = result_window.eval(&format!(
-                        "if (window.onOverlexError) window.onOverlexError({});",
-                        json_err
-                    ));
-                }
-            } else {
-                let _ = app_handle.emit("overlex-error", err_payload);
-            }
+            }, true);
             return Err(format!("Failed to capture region: {}", e));
         }
     };
 
-    // 3. Run OCR - ocr_region is async but internally uses .get() to block
-    let ocr_result = match ocr::ocr_region(&cropped_png).await {
+    // 3. Pre-process image if enabled (runs in spawn_blocking to avoid blocking async runtime)
+    let processed_png = {
+        let settings = settings_state.settings.lock().unwrap().clone();
+        if settings.ocr_preprocessing {
+            let binarize = settings.ocr_binarize;
+            let cropped_clone = cropped_png.clone();
+            match tokio::task::spawn_blocking(move || {
+                ocr::preprocess_for_ocr(&cropped_clone, binarize)
+            }).await {
+                Ok(Ok(processed)) => {
+                    eprintln!("[OCR] Pre-processing applied (binarize={})", binarize);
+                    processed
+                }
+                Ok(Err(e)) => {
+                    eprintln!("[OCR] Pre-processing failed, using original: {}", e);
+                    cropped_png
+                }
+                Err(e) => {
+                    eprintln!("[OCR] Pre-processing task panicked: {}", e);
+                    cropped_png
+                }
+            }
+        } else {
+            cropped_png
+        }
+    };
+
+    // 4. Run OCR - ocr_region is async but internally uses .get() to block
+    let ocr_result = match ocr::ocr_region(&processed_png).await {
         Ok(r) => r,
         Err(e) => {
-            let err_payload = ErrorPayload {
+            emit_error(&app_handle, ErrorPayload {
                 code: "OCR_ERROR".to_string(),
                 message: format!("OCR failed: {}", e),
-            };
-            // Try to emit to result window, fallback to global
-            if let Some(result_window) = app_handle.get_webview_window("result") {
-                let _ = result_window.emit("overlex-error", err_payload.clone());
-                // Show and deliver error via eval for guaranteed delivery
-                let _ = result_window.show();
-                if let Ok(json_err) = serde_json::to_string(&err_payload) {
-                    let _ = result_window.eval(&format!(
-                        "if (window.onOverlexError) window.onOverlexError({});",
-                        json_err
-                    ));
-                }
-            } else {
-                let _ = app_handle.emit("overlex-error", err_payload);
-            }
+            }, true);
             return Err(format!("OCR failed: {}", e));
         }
     };
@@ -370,36 +410,11 @@ pub async fn ocr_capture_region(
             target_lang: settings.target_lang.clone(),
         };
 
-        // Try to emit directly to result window, fallback to global
-        if let Some(result_window) = app_handle.get_webview_window("result") {
-            let _ = result_window.emit("translation-result", &error_payload);
-            // Also deliver via eval for guaranteed delivery
-            if let Ok(json_err_payload) = serde_json::to_string(&error_payload) {
-                let _ = result_window.eval(&format!(
-                    "if (window.onTranslationResult) window.onTranslationResult({});",
-                    json_err_payload
-                ));
-            }
-        } else {
-            let _ = app_handle.emit("translation-result", error_payload);
-        }
-
-        let err_payload = ErrorPayload {
+        emit_result(&app_handle, &error_payload, true);
+        emit_error(&app_handle, ErrorPayload {
             code: "OCR_EMPTY".to_string(),
             message: "No text detected in selection".to_string(),
-        };
-        if let Some(result_window) = app_handle.get_webview_window("result") {
-            let _ = result_window.emit("overlex-error", err_payload.clone());
-            // Also deliver error via eval
-            if let Ok(json_err) = serde_json::to_string(&err_payload) {
-                let _ = result_window.eval(&format!(
-                    "if (window.onOverlexError) window.onOverlexError({});",
-                    json_err
-                ));
-            }
-        } else {
-            let _ = app_handle.emit("overlex-error", err_payload);
-        }
+        }, true);
         return Err("No text detected in selection".to_string());
     }
 
@@ -408,35 +423,39 @@ pub async fn ocr_capture_region(
     // 5. Get settings
     let settings = settings_state.settings.lock().unwrap().clone();
 
-    // 6. Translate
-    let translation_result = match translation_state
-        .engine
+    // 6. Translate (acquire read lock, clone Arc, release lock before async call)
+    let engine = translation_state.engine.read().unwrap().clone();
+    let translation_result = match engine
         .translate(&original_text, &settings.source_lang, &settings.target_lang)
         .await
     {
         Ok(r) => r,
         Err(e) => {
-            let err_payload = ErrorPayload {
+            emit_error(&app_handle, ErrorPayload {
                 code: "NETWORK_ERROR".to_string(),
                 message: format!("Translation failed: {}", e),
-            };
-            // Try to emit to result window, fallback to global
-            if let Some(result_window) = app_handle.get_webview_window("result") {
-                let _ = result_window.emit("overlex-error", err_payload.clone());
-                // Show and deliver error via eval for guaranteed delivery
-                let _ = result_window.show();
-                if let Ok(json_err) = serde_json::to_string(&err_payload) {
-                    let _ = result_window.eval(&format!(
-                        "if (window.onOverlexError) window.onOverlexError({});",
-                        json_err
-                    ));
-                }
-            } else {
-                let _ = app_handle.emit("overlex-error", err_payload);
-            }
+            }, true);
             return Err(format!("Translation failed: {}", e));
         }
     };
+
+    // 7. Save to history (fire-and-forget if enabled)
+    if settings.history_enabled {
+        let entry = history::HistoryEntry {
+            id: 0,
+            original_text: original_text.clone(),
+            translated_text: translation_result.translated.clone(),
+            source_lang: settings.source_lang.clone(),
+            target_lang: settings.target_lang.clone(),
+            engine: settings.engine.clone(),
+            created_at: String::new(), // DB sets this via DEFAULT
+        };
+        let _ = tokio::task::spawn_blocking(move || {
+            if let Err(e) = history::HistoryDb::insert(&entry) {
+                eprintln!("[HISTORY] Failed to save entry: {}", e);
+            }
+        });
+    }
 
     // Create payload BEFORE getting the window
     let payload = ResultPayload {
@@ -450,22 +469,9 @@ pub async fn ocr_capture_region(
 
     // Show result window and emit directly to it
     if let Some(result_window) = app_handle.get_webview_window("result") {
-        let _ = result_window.show();
-
-        // Position the result window based on settings with selection coordinates
         position_result_window(&result_window, &settings, &None, x, y, width, height);
-
-        // Emit directly to result window (not globally)
-        let _ = result_window.emit("translation-result", &payload);
-
-        // Guaranteed delivery via eval
-        if let Ok(json_payload) = serde_json::to_string(&payload) {
-            let _ = result_window.eval(&format!(
-                "if (window.onTranslationResult) window.onTranslationResult({});",
-                json_payload
-            ));
-        }
     }
+    emit_result(&app_handle, &payload, true);
 
     // Hide freeze window
     if let Some(freeze_win) = app_handle.get_webview_window("freeze") {
@@ -485,22 +491,43 @@ pub async fn translate_chat(
     text: String,
     translation_state: tauri::State<'_, TranslationState>,
     settings_state: tauri::State<'_, SettingsState>,
+    _history_state: tauri::State<'_, HistoryState>,
 ) -> Result<TranslationResult, String> {
     // Get settings for source/target languages
     let settings = settings_state.settings.lock().unwrap().clone();
 
-    // Call translation engine
-    let result = translation_state
-        .engine
+    // Call translation engine (acquire read lock, clone Arc, release lock before async call)
+    let engine = translation_state.engine.read().unwrap().clone();
+    let result = engine
         .translate(&text, &settings.source_lang, &settings.target_lang)
         .await
         .map_err(|e| e.to_string())?;
 
-    Ok(TranslationResult {
-        original: text,
+    let translated_result = TranslationResult {
+        original: text.clone(),
         translated: result.translated,
         detected_source: result.detected_source,
-    })
+    };
+
+    // Save to history (fire-and-forget if enabled)
+    if settings.history_enabled {
+        let entry = history::HistoryEntry {
+            id: 0,
+            original_text: translated_result.original.clone(),
+            translated_text: translated_result.translated.clone(),
+            source_lang: settings.source_lang.clone(),
+            target_lang: settings.target_lang.clone(),
+            engine: settings.engine.clone(),
+            created_at: String::new(),
+        };
+        let _ = tokio::task::spawn_blocking(move || {
+            if let Err(e) = history::HistoryDb::insert(&entry) {
+                eprintln!("[HISTORY] Failed to save entry: {}", e);
+            }
+        });
+    }
+
+    Ok(translated_result)
 }
 
 /// Hide a specific window by label
@@ -592,5 +619,73 @@ pub fn drag_result_window_noactivate(x: i32, y: i32, app_handle: tauri::AppHandl
             }
         }
     }
+}
+
+// ============================================================================
+// History Commands
+// ============================================================================
+
+/// Get translation history with pagination (newest first)
+#[tauri::command]
+pub async fn get_history(
+    limit: u32,
+    offset: u32,
+    _history: tauri::State<'_, HistoryState>,
+) -> Result<Vec<HistoryEntry>, String> {
+    let (limit, offset) = (limit, offset);
+    tokio::task::spawn_blocking(move || {
+        history::HistoryDb::get_all(limit, offset)
+    }).await.map_err(|e| format!("Task join error: {}", e))?
+}
+
+/// Search translation history using FTS5
+#[tauri::command]
+pub async fn search_history(
+    query: String,
+    _history: tauri::State<'_, HistoryState>,
+) -> Result<Vec<HistoryEntry>, String> {
+    let query = query.trim().to_string();
+    if query.is_empty() {
+        return tokio::task::spawn_blocking(move || {
+            history::HistoryDb::get_all(50, 0)
+        }).await.map_err(|e| format!("Task join error: {}", e))?;
+    }
+    let query_for_search = query.clone();
+    tokio::task::spawn_blocking(move || {
+        history::HistoryDb::search(&query_for_search)
+    }).await.map_err(|e| format!("Task join error: {}", e))?
+}
+
+/// Export translation history as JSON or CSV
+#[tauri::command]
+pub async fn export_history(
+    format: String,
+    _history: tauri::State<'_, HistoryState>,
+) -> Result<String, String> {
+    let format = format.clone();
+    tokio::task::spawn_blocking(move || {
+        history::HistoryDb::export(&format)
+    }).await.map_err(|e| format!("Task join error: {}", e))?
+}
+
+/// Clear all translation history
+#[tauri::command]
+pub async fn clear_history(
+    _history: tauri::State<'_, HistoryState>,
+) -> Result<(), String> {
+    tokio::task::spawn_blocking(history::HistoryDb::clear)
+        .await.map_err(|e| format!("Task join error: {}", e))?
+}
+
+/// Delete a specific history entry by ID
+#[tauri::command]
+pub async fn delete_history_entry(
+    id: i64,
+    _history: tauri::State<'_, HistoryState>,
+) -> Result<(), String> {
+    let id = id;
+    tokio::task::spawn_blocking(move || {
+        history::HistoryDb::delete(id)
+    }).await.map_err(|e| format!("Task join error: {}", e))?
 }
 

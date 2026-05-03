@@ -2,12 +2,16 @@
 
 mod google_gtx;
 mod libretranslate;
+mod mymemory;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 pub use google_gtx::GoogleGtxAdapter;
 pub use libretranslate::LibreTranslateAdapter;
+pub use mymemory::MyMemoryAdapter;
+
+use crate::commands::Settings;
 
 /// Translation engine trait
 #[async_trait]
@@ -55,3 +59,26 @@ impl std::fmt::Display for TranslationError {
 }
 
 impl std::error::Error for TranslationError {}
+
+/// Create a translation engine based on settings.
+/// Supports: google_gtx (default, free), mymemory (free), libretranslate (free, self-hosted or public).
+/// All supported engines are free and require NO registration.
+pub fn create_engine(settings: &Settings) -> Box<dyn TranslationEngine> {
+    match settings.engine.as_str() {
+        "mymemory" => {
+            eprintln!("[ENGINE] Using MyMemory (free, no API key)");
+            Box::new(MyMemoryAdapter::new())
+        }
+        "libretranslate" => {
+            eprintln!("[ENGINE] Using LibreTranslate at {}", settings.libre_translate_url);
+            Box::new(LibreTranslateAdapter::new(
+                settings.libre_translate_url.clone(),
+                None, // No API key needed for public instances
+            ))
+        }
+        "google_gtx" | _ => {
+            eprintln!("[ENGINE] Using Google GTX (free, no API key)");
+            Box::new(GoogleGtxAdapter::new())
+        }
+    }
+}

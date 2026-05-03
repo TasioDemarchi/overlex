@@ -3,6 +3,7 @@
 
 pub mod capture;
 pub mod commands;
+pub mod history;
 pub mod hotkeys;
 pub mod ocr;
 pub mod settings;
@@ -11,7 +12,7 @@ pub mod tray;
 
 pub use commands::Settings;
 
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, RwLock, Mutex};
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -24,9 +25,10 @@ use window_vibrancy::apply_acrylic;
 #[cfg(target_os = "windows")]
 use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
 
-/// State to hold the translation engine (Arc for thread-safe access in async commands)
+/// State to hold the translation engine (swappeable at runtime via settings change).
+/// Uses RwLock to allow concurrent reads (translate calls) with exclusive writes (engine swap).
 pub struct TranslationState {
-    pub engine: Arc<dyn TranslationEngine>,
+    pub engine: Arc<RwLock<Arc<dyn TranslationEngine>>>,
 }
 
 /// State to hold the latest screenshot (for OCR region capture)
@@ -45,6 +47,9 @@ pub struct SettingsState {
 pub struct FocusRestoreState {
     pub hwnd: Arc<Mutex<Option<isize>>>,
 }
+
+/// Marker type for history state (actual DB is in OnceLock in history module)
+pub struct HistoryState {}
 
 /// Result payload sent to result window
 #[derive(serde::Serialize, Clone)]
@@ -114,11 +119,12 @@ pub fn run() {
             let settings = settings::load_settings();
             let settings_for_hotkey = settings.clone();
 
-            // Initialize translation engine (default: Google GTX - no API key required)
-            // LibreTranslateAdapter is available as alternative if user configures it
-            let engine = translation::GoogleGtxAdapter::new();
+            // Initialize translation engine based on settings (dynamic factory)
+            // All supported engines are free and require no registration:
+            // google_gtx (default), mymemory, libretranslate
+            let engine: Arc<dyn TranslationEngine> = Arc::from(translation::create_engine(&settings));
             let translation_state = TranslationState {
-                engine: Arc::new(engine),
+                engine: Arc::new(RwLock::new(engine)),
             };
             app.manage(translation_state);
 
@@ -133,6 +139,18 @@ pub fn run() {
                 settings: Arc::new(Mutex::new(settings)),
             };
             app.manage(settings_state);
+
+            // Initialize history DB at %APPDATA%/overlex/history.db
+            let appdata = std::env::var("APPDATA").unwrap_or_else(|_| ".".to_string());
+            let history_path = std::path::PathBuf::from(&appdata).join("overlex").join("history.db");
+            if let Some(parent) = history_path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            match history::HistoryDb::init(&history_path) {
+                Ok(()) => eprintln!("[HISTORY] Database initialized at {:?}", history_path),
+                Err(e) => eprintln!("[HISTORY] Failed to initialize database: {}", e),
+            }
+            app.manage(HistoryState {});
 
             // Initialize focus restore state (for write mode)
             let focus_state = FocusRestoreState {
@@ -262,9 +280,7 @@ pub fn run() {
                             if let Some(state) = handle.try_state::<ScreenshotState>() {
                                 *state.png_data.lock().unwrap() = Some(png_bytes.clone());
                             }
-                            // DEBUG: save PNG to disk to verify it's not corrupt
-                            let _ = std::fs::write("C:\\Users\\Slim-7\\Desktop\\debug_screenshot.png", &png_bytes);
-                            eprintln!("[RUST] PNG saved to Desktop, stored in ScreenshotState");
+                            eprintln!("[RUST] PNG stored in ScreenshotState ({} bytes)", png_bytes.len());
                         }
                         Ok(None) => {
                             eprintln!("[RUST] PNG encode returned None");
@@ -411,6 +427,11 @@ pub fn run() {
             commands::drag_result_window_noactivate,
             commands::get_dpi_scale,
             commands::js_log,
+            commands::get_history,
+            commands::search_history,
+            commands::export_history,
+            commands::clear_history,
+            commands::delete_history_entry,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
