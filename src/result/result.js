@@ -167,6 +167,7 @@ let __currentEngine = '—';
             // Active game changed
             listen('active-game-changed', (event) => {
                 const info = event.payload;
+                window.__lastActiveGameInfo = info; // Store for later use
                 const debugEl = document.getElementById('debug-line');
                 if (!debugEl) return;
                 if (info.process_name) {
@@ -180,16 +181,33 @@ let __currentEngine = '—';
                 }
             });
 
-            // Settings changed (show_debug toggled)
+            // Settings changed (show_debug toggled or engine/profile changed)
             listen('settings-changed', (event) => {
                 const payload = event.payload;
-                if (payload && typeof payload.show_debug === 'boolean') {
+                if (!payload) return;
+                // Update engine if it changed
+                if (payload.engine) {
+                    __currentEngine = payload.engine;
+                }
+                if (typeof payload.show_debug === 'boolean') {
                     const debugEl = document.getElementById('debug-line');
                     if (!debugEl) return;
                     if (payload.show_debug) {
                         debugEl.classList.add('visible');
                     } else {
                         debugEl.classList.remove('visible');
+                    }
+                }
+                // Re-render debug line with updated engine
+                if (payload.show_debug) {
+                    const debugEl = document.getElementById('debug-line');
+                    if (debugEl && debugEl.textContent) {
+                        const info = window.__lastActiveGameInfo || {};
+                        let text = info.process_name || '—';
+                        if (info.matched_profile) text += ` [${info.matched_profile}]`;
+                        text += ` · ${__currentEngine}`;
+                        if (info.fullscreen_exclusive) text += ' ⚠ Fullscreen';
+                        debugEl.textContent = text;
                     }
                 }
             });

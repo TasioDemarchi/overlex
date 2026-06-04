@@ -410,13 +410,19 @@ async function deleteProfile(displayName) {
 }
 
 // Auto-fill the process names field from the current foreground game
+// Note: only works when the game is in foreground, not from Settings window
 async function autoFillProcessName() {
     try {
         const info = await invoke('get_active_game');
         if (info && info.process_name) {
+            // Filter out our own process
+            if (info.process_name.toLowerCase() === 'overlex.exe') {
+                showMessage('Cannot auto-detect from Settings. Please type the game\'s process name manually (e.g., PathOfExileSteam.exe)', true);
+                return;
+            }
             profileProcessNames.value = info.process_name;
         } else {
-            showMessage('No active game detected', true);
+            showMessage('No active game detected. Please type the process name manually (e.g., PathOfExileSteam.exe)', true);
         }
     } catch (e) {
         showMessage('Failed to get active game: ' + e, true);
