@@ -3,7 +3,9 @@
 // Free tier: 5000 chars/day without email, 50000 chars/day with email
 // No API key needed for basic usage
 
-use crate::translation::{TranslationEngine, TranslationError, TranslationResult};
+use crate::translation::{
+    TranslationContext, TranslationEngine, TranslationError, TranslationResult,
+};
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::Deserialize;
@@ -21,7 +23,10 @@ impl MyMemoryAdapter {
             .timeout(std::time::Duration::from_secs(10))
             .build()
             .expect("Failed to build HTTP client");
-        Self { client, email: None }
+        Self {
+            client,
+            email: None,
+        }
     }
 
     /// Create a new MyMemory adapter with email (50000 chars/day limit, still free)
@@ -30,7 +35,10 @@ impl MyMemoryAdapter {
             .timeout(std::time::Duration::from_secs(10))
             .build()
             .expect("Failed to build HTTP client");
-        Self { client, email: Some(email) }
+        Self {
+            client,
+            email: Some(email),
+        }
     }
 }
 
@@ -76,31 +84,27 @@ impl TranslationEngine for MyMemoryAdapter {
         text: &str,
         source: &str,
         target: &str,
+        _context: Option<&TranslationContext>,
     ) -> Result<TranslationResult, TranslationError> {
         let lang_pair = format!("{}|{}", source, target);
 
-        let mut request = self.client
+        let mut request = self
+            .client
             .get("https://api.mymemory.translated.net/get")
-            .query(&[
-                ("q", text),
-                ("langpair", &lang_pair),
-            ]);
+            .query(&[("q", text), ("langpair", &lang_pair)]);
 
         // Add email if configured for higher rate limit
         if let Some(ref email) = self.email {
             request = request.query(&[("de", email.as_str())]);
         }
 
-        let response = request
-            .send()
-            .await
-            .map_err(|e| {
-                if e.is_timeout() {
-                    TranslationError::Timeout
-                } else {
-                    TranslationError::Network(e.to_string())
-                }
-            })?;
+        let response = request.send().await.map_err(|e| {
+            if e.is_timeout() {
+                TranslationError::Timeout
+            } else {
+                TranslationError::Network(e.to_string())
+            }
+        })?;
 
         let status = response.status();
 
@@ -115,10 +119,15 @@ impl TranslationEngine for MyMemoryAdapter {
 
         if !status.is_success() {
             let body = response.text().await.unwrap_or_default();
-            return Err(TranslationError::Network(format!("HTTP {}: {}", status, body)));
+            return Err(TranslationError::Network(format!(
+                "HTTP {}: {}",
+                status, body
+            )));
         }
 
-        let body = response.text().await
+        let body = response
+            .text()
+            .await
             .map_err(|e| TranslationError::Network(format!("Failed to read response: {}", e)))?;
 
         // Try to parse as success response first
@@ -131,12 +140,13 @@ impl TranslationEngine for MyMemoryAdapter {
 
                     // MyMemory sometimes returns all-uppercase when it can't translate
                     // Check if the "translation" is just the original text in uppercase
-                    let translated_clean = if translated.trim().to_uppercase() == text.trim().to_uppercase() {
-                        // Likely a failed translation — return as-is, let the user decide
-                        translated
-                    } else {
-                        translated
-                    };
+                    let translated_clean =
+                        if translated.trim().to_uppercase() == text.trim().to_uppercase() {
+                            // Likely a failed translation — return as-is, let the user decide
+                            translated
+                        } else {
+                            translated
+                        };
 
                     Ok(TranslationResult {
                         original: text.to_string(),
@@ -146,8 +156,7 @@ impl TranslationEngine for MyMemoryAdapter {
                 } else {
                     Err(TranslationError::Network(format!(
                         "MyMemory returned status {}: {}",
-                        result.responseStatus,
-                        result.responseData.translatedText
+                        result.responseStatus, result.responseData.translatedText
                     )))
                 }
             }
@@ -155,19 +164,14 @@ impl TranslationEngine for MyMemoryAdapter {
                 // Try parsing as error response
                 let err_parsed: Result<MyMemoryErrorResponse, _> = serde_json::from_str(&body);
                 match err_parsed {
-                    Ok(err_result) => {
-                        Err(TranslationError::Network(format!(
-                            "MyMemory error (status {}): {}",
-                            err_result.responseStatus,
-                            err_result.responseData.translatedText
-                        )))
-                    }
-                    Err(_) => {
-                        Err(TranslationError::Network(format!(
-                            "Failed to parse MyMemory response: {}",
-                            &body[..body.len().min(200)]
-                        )))
-                    }
+                    Ok(err_result) => Err(TranslationError::Network(format!(
+                        "MyMemory error (status {}): {}",
+                        err_result.responseStatus, err_result.responseData.translatedText
+                    ))),
+                    Err(_) => Err(TranslationError::Network(format!(
+                        "Failed to parse MyMemory response: {}",
+                        &body[..body.len().min(200)]
+                    ))),
                 }
             }
         }

@@ -1,5 +1,7 @@
 // Translation module - translation engine trait and adapters
 
+mod deepl;
+mod gemini;
 mod google_gtx;
 mod libretranslate;
 mod mymemory;
@@ -7,11 +9,20 @@ mod mymemory;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
+pub use deepl::DeepLAdapter;
+pub use gemini::GeminiAdapter;
 pub use google_gtx::GoogleGtxAdapter;
 pub use libretranslate::LibreTranslateAdapter;
 pub use mymemory::MyMemoryAdapter;
 
 use crate::commands::Settings;
+
+/// Game context passed to translation engines for domain-aware translations
+#[derive(Debug, Clone)]
+pub struct TranslationContext {
+    pub process_name: Option<String>,
+    pub profile_name: Option<String>,
+}
 
 /// Translation engine trait
 #[async_trait]
@@ -21,6 +32,7 @@ pub trait TranslationEngine: Send + Sync {
         text: &str,
         source: &str,
         target: &str,
+        context: Option<&TranslationContext>,
     ) -> Result<TranslationResult, TranslationError>;
 
     fn name(&self) -> &str;
@@ -61,24 +73,125 @@ impl std::fmt::Display for TranslationError {
 impl std::error::Error for TranslationError {}
 
 /// Create a translation engine based on settings.
-/// Supports: google_gtx (default, free), mymemory (free), libretranslate (free, self-hosted or public).
-/// All supported engines are free and require NO registration.
+/// Supports: google_gtx (default, free), mymemory (free), libretranslate,
+/// gemini (requires API key), deepl (requires API key).
 pub fn create_engine(settings: &Settings) -> Box<dyn TranslationEngine> {
     match settings.engine.as_str() {
+        "gemini" => {
+            let api_key = crate::settings::get_api_key("gemini").ok();
+            eprintln!(
+                "[ENGINE] Using Gemini 2.0 Flash (API key: {})",
+                if api_key.is_some() { "yes" } else { "no" }
+            );
+            Box::new(GeminiAdapter::new(api_key))
+        }
+        "deepl" => {
+            let api_key = crate::settings::get_api_key("deepl").ok();
+            eprintln!(
+                "[ENGINE] Using DeepL Free (API key: {})",
+                if api_key.is_some() { "yes" } else { "no" }
+            );
+            Box::new(DeepLAdapter::new(api_key))
+        }
         "mymemory" => {
             eprintln!("[ENGINE] Using MyMemory (free, no API key)");
             Box::new(MyMemoryAdapter::new())
         }
         "libretranslate" => {
-            eprintln!("[ENGINE] Using LibreTranslate at {}", settings.libre_translate_url);
+            let api_key = crate::settings::get_api_key("libretranslate").ok();
+            eprintln!(
+                "[ENGINE] Using LibreTranslate at {}",
+                settings.libre_translate_url
+            );
             Box::new(LibreTranslateAdapter::new(
                 settings.libre_translate_url.clone(),
-                None, // No API key needed for public instances
+                api_key,
             ))
         }
         "google_gtx" | _ => {
             eprintln!("[ENGINE] Using Google GTX (free, no API key)");
             Box::new(GoogleGtxAdapter::new())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::commands::Settings;
+
+    #[test]
+    fn test_translation_context_none() {
+        let ctx = TranslationContext {
+            process_name: None,
+            profile_name: None,
+        };
+        assert!(ctx.process_name.is_none());
+        assert!(ctx.profile_name.is_none());
+    }
+
+    #[test]
+    fn test_translation_context_with_game() {
+        let ctx = TranslationContext {
+            process_name: Some("poe2.exe".to_string()),
+            profile_name: Some("Path of Exile 2".to_string()),
+        };
+        assert_eq!(ctx.process_name.as_deref(), Some("poe2.exe"));
+        assert_eq!(ctx.profile_name.as_deref(), Some("Path of Exile 2"));
+    }
+
+    #[test]
+    fn test_create_engine_default_fallback() {
+        let settings = Settings {
+            engine: "unknown_engine".to_string(),
+            ..Settings::default()
+        };
+        let engine = create_engine(&settings);
+        assert_eq!(engine.name(), "Google Translate");
+        assert!(!engine.requires_api_key());
+    }
+
+    #[test]
+    fn test_create_engine_google_gtx() {
+        let settings = Settings {
+            engine: "google_gtx".to_string(),
+            ..Settings::default()
+        };
+        let engine = create_engine(&settings);
+        assert_eq!(engine.name(), "Google Translate");
+        assert!(!engine.requires_api_key());
+    }
+
+    #[test]
+    fn test_create_engine_mymemory() {
+        let settings = Settings {
+            engine: "mymemory".to_string(),
+            ..Settings::default()
+        };
+        let engine = create_engine(&settings);
+        assert_eq!(engine.name(), "MyMemory");
+        assert!(!engine.requires_api_key());
+    }
+
+    #[test]
+    fn test_create_engine_gemini() {
+        let settings = Settings {
+            engine: "gemini".to_string(),
+            ..Settings::default()
+        };
+        let engine = create_engine(&settings);
+        assert_eq!(engine.name(), "Gemini");
+        assert!(engine.requires_api_key());
+    }
+
+    #[test]
+    fn test_create_engine_deepl() {
+        let settings = Settings {
+            engine: "deepl".to_string(),
+            ..Settings::default()
+        };
+        let engine = create_engine(&settings);
+        assert_eq!(engine.name(), "DeepL");
+        assert!(engine.requires_api_key());
     }
 }

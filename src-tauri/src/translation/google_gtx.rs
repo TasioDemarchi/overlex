@@ -1,7 +1,9 @@
 // Google GTX adapter - unofficial free Google Translate API
 // Uses the client=gtx endpoint which is free and doesn't require an API key
 
-use crate::translation::{TranslationEngine, TranslationError, TranslationResult};
+use crate::translation::{
+    TranslationContext, TranslationEngine, TranslationError, TranslationResult,
+};
 use async_trait::async_trait;
 use reqwest::Client;
 use serde_json::Value;
@@ -35,9 +37,11 @@ impl TranslationEngine for GoogleGtxAdapter {
         text: &str,
         source: &str,
         target: &str,
+        _context: Option<&TranslationContext>,
     ) -> Result<TranslationResult, TranslationError> {
         // Build the request with properly URL-encoded query parameters
-        let response = self.client
+        let response = self
+            .client
             .get("https://translate.googleapis.com/translate_a/single")
             .query(&[
                 ("client", "gtx"),
@@ -68,7 +72,10 @@ impl TranslationEngine for GoogleGtxAdapter {
         }
         if !status.is_success() {
             let body = response.text().await.unwrap_or_default();
-            return Err(TranslationError::Network(format!("HTTP {}: {}", status, body)));
+            return Err(TranslationError::Network(format!(
+                "HTTP {}: {}",
+                status, body
+            )));
         }
 
         // Parse response JSON - it's a nested array structure
@@ -81,10 +88,9 @@ impl TranslationEngine for GoogleGtxAdapter {
         // Extract translated text — response[0] is an array of segments,
         // each segment is [translated_chunk, original_chunk, ...].
         // Must concatenate ALL segments to get the full translation.
-        let segments = json
-            .get(0)
-            .and_then(|v| v.as_array())
-            .ok_or_else(|| TranslationError::Network("Failed to parse translation segments".to_string()))?;
+        let segments = json.get(0).and_then(|v| v.as_array()).ok_or_else(|| {
+            TranslationError::Network("Failed to parse translation segments".to_string())
+        })?;
 
         let translated: String = segments
             .iter()
@@ -93,10 +99,7 @@ impl TranslationEngine for GoogleGtxAdapter {
             .join("");
 
         // Extract detected language from response[2]
-        let detected_source = json
-            .get(2)
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
+        let detected_source = json.get(2).and_then(|v| v.as_str()).map(|s| s.to_string());
 
         Ok(TranslationResult {
             original: text.to_string(),

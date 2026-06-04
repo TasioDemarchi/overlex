@@ -1,7 +1,9 @@
 // LibreTranslate adapter - default translation engine
 // TODO: Implement HTTP calls to LibreTranslate API
 
-use crate::translation::{TranslationEngine, TranslationError, TranslationResult};
+use crate::translation::{
+    TranslationContext, TranslationEngine, TranslationError, TranslationResult,
+};
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -19,7 +21,11 @@ impl LibreTranslateAdapter {
             .timeout(std::time::Duration::from_secs(10))
             .build()
             .expect("Failed to build HTTP client");
-        Self { base_url, api_key, client }
+        Self {
+            base_url,
+            api_key,
+            client,
+        }
     }
 }
 
@@ -53,6 +59,7 @@ impl TranslationEngine for LibreTranslateAdapter {
         text: &str,
         source: &str,
         target: &str,
+        _context: Option<&TranslationContext>,
     ) -> Result<TranslationResult, TranslationError> {
         let url = format!("{}/translate", self.base_url);
 
@@ -64,7 +71,8 @@ impl TranslationEngine for LibreTranslateAdapter {
             api_key: self.api_key.as_deref(),
         };
 
-        let response = self.client
+        let response = self
+            .client
             .post(&url)
             .json(&request)
             .send()
@@ -92,7 +100,10 @@ impl TranslationEngine for LibreTranslateAdapter {
         }
         if !status.is_success() {
             let body = response.text().await.unwrap_or_default();
-            return Err(TranslationError::Network(format!("HTTP {}: {}", status, body)));
+            return Err(TranslationError::Network(format!(
+                "HTTP {}: {}",
+                status, body
+            )));
         }
 
         // Parse response JSON
@@ -125,10 +136,7 @@ mod tests {
 
     #[test]
     fn test_adapter_creation() {
-        let adapter = LibreTranslateAdapter::new(
-            "https://libretranslate.com".to_string(),
-            None,
-        );
+        let adapter = LibreTranslateAdapter::new("https://libretranslate.com".to_string(), None);
         assert_eq!(adapter.name(), "LibreTranslate");
     }
 }

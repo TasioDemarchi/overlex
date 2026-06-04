@@ -1,11 +1,18 @@
 // Commands module - all Tauri command handlers
 
-use std::sync::Arc;
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use tauri::{Emitter, Manager, Position};
 
-use crate::{capture, history, history::HistoryEntry, ocr, ResultPayload, SettingsState, ActiveGameState, ScreenshotState, TranslationState, FocusRestoreState, HistoryState, settings, translation::TranslationEngine};
+use crate::{
+    capture, history,
+    history::HistoryEntry,
+    ocr, settings,
+    translation::{TranslationContext, TranslationEngine, TranslationError},
+    ActiveGameState, FocusRestoreState, HistoryState, ResultPayload, ScreenshotState,
+    SettingsState, TranslationState,
+};
 
 /// Language swap result payload
 #[derive(serde::Serialize, Clone)]
@@ -43,7 +50,10 @@ fn position_result_window(
         "top-left" => (20, 20),
         "top-right" => (screen_width - window_width - 20, 20),
         "bottom-left" => (20, screen_height - window_height - 20),
-        "bottom-right" => (screen_width - window_width - 20, screen_height - window_height - 20),
+        "bottom-right" => (
+            screen_width - window_width - 20,
+            screen_height - window_height - 20,
+        ),
         "near-selection" | _ => {
             // Position near selection area - offset slightly to the right and down
             let x = sel_x + sel_width.min(50);
@@ -52,13 +62,16 @@ fn position_result_window(
         }
     };
 
-    let _ = window.set_position(Position::Logical(tauri::LogicalPosition::new(pos_x as f64, pos_y as f64)));
+    let _ = window.set_position(Position::Logical(tauri::LogicalPosition::new(
+        pos_x as f64,
+        pos_y as f64,
+    )));
 }
 
 /// Error payload emitted on overlex-error events
 #[derive(serde::Serialize, Clone)]
 pub struct ErrorPayload {
-    pub code: String,    // "NETWORK_ERROR", "OCR_ERROR", "OCR_EMPTY", "OCR_LANGUAGE_MISSING", "RATE_LIMIT"
+    pub code: String, // "NETWORK_ERROR", "OCR_ERROR", "OCR_EMPTY", "OCR_LANGUAGE_MISSING", "RATE_LIMIT"
     pub message: String,
 }
 
@@ -139,7 +152,9 @@ pub struct Settings {
     pub show_debug: bool,
 }
 
-fn default_true() -> bool { true }
+fn default_true() -> bool {
+    true
+}
 
 impl Default for Settings {
     fn default() -> Self {
@@ -219,7 +234,9 @@ pub async fn swap_languages(
 
 /// Get current settings
 #[tauri::command]
-pub async fn get_settings(settings_state: tauri::State<'_, SettingsState>) -> Result<Settings, String> {
+pub async fn get_settings(
+    settings_state: tauri::State<'_, SettingsState>,
+) -> Result<Settings, String> {
     let settings = settings_state.settings.lock().unwrap().clone();
     Ok(settings)
 }
@@ -258,9 +275,16 @@ pub async fn save_settings(
         };
 
         if let Some(ref profile_name) = active_profile_name {
-            if let Some(profile) = saved.profiles.iter().find(|p| &p.display_name == profile_name) {
+            if let Some(profile) = saved
+                .profiles
+                .iter()
+                .find(|p| &p.display_name == profile_name)
+            {
                 let overridden = apply_profile_overrides(&saved, profile);
-                eprintln!("[SETTINGS] Re-applied profile '{}' overrides after save", profile_name);
+                eprintln!(
+                    "[SETTINGS] Re-applied profile '{}' overrides after save",
+                    profile_name
+                );
                 overridden
             } else {
                 saved.clone()
@@ -276,23 +300,37 @@ pub async fn save_settings(
     // Step 4: Swap engine if needed (lock 4).
     let engine_changed = old_engine != effective_settings.engine;
     if engine_changed {
-        let new_engine: Arc<dyn TranslationEngine> = Arc::from(crate::translation::create_engine(&effective_settings));
+        let new_engine: Arc<dyn TranslationEngine> =
+            Arc::from(crate::translation::create_engine(&effective_settings));
         let mut engine_guard = translation_state.engine.write().unwrap();
         *engine_guard = new_engine;
-        eprintln!("[SETTINGS] Translation engine swapped to: {}", effective_settings.engine);
+        eprintln!(
+            "[SETTINGS] Translation engine swapped to: {}",
+            effective_settings.engine
+        );
     }
 
     // Re-register hotkeys with the effective settings
     let mut hk = hotkey_state.lock().map_err(|e| e.to_string())?;
-    crate::hotkeys::register_hotkeys(&mut hk, &effective_settings.ocr_hotkey, &effective_settings.write_hotkey, app_handle.clone())?;
+    crate::hotkeys::register_hotkeys(
+        &mut hk,
+        &effective_settings.ocr_hotkey,
+        &effective_settings.write_hotkey,
+        app_handle.clone(),
+    )?;
 
     // Emit settings-changed so overlays re-check show_debug
-    let _ = app_handle.emit("settings-changed", serde_json::json!({
-        "show_debug": effective_settings.show_debug,
-    }));
+    let _ = app_handle.emit(
+        "settings-changed",
+        serde_json::json!({
+            "show_debug": effective_settings.show_debug,
+        }),
+    );
 
-    eprintln!("[SETTINGS] Saved. effective engine={}, show_debug={}",
-        effective_settings.engine, effective_settings.show_debug);
+    eprintln!(
+        "[SETTINGS] Saved. effective engine={}, show_debug={}",
+        effective_settings.engine, effective_settings.show_debug
+    );
 
     Ok(())
 }
@@ -303,6 +341,7 @@ pub async fn translate_text(
     text: String,
     translation_state: tauri::State<'_, TranslationState>,
     settings_state: tauri::State<'_, SettingsState>,
+    active_game_state: tauri::State<'_, ActiveGameState>,
     focus_state: tauri::State<'_, FocusRestoreState>,
     _history_state: tauri::State<'_, HistoryState>,
     app_handle: tauri::AppHandle,
@@ -310,18 +349,56 @@ pub async fn translate_text(
     // Get settings
     let settings = settings_state.settings.lock().unwrap().clone();
 
+    // Build TranslationContext from active game info
+    let context = {
+        let info = active_game_state.info.lock().unwrap();
+        match (&info.process_name, &info.matched_profile) {
+            (None, None) => None,
+            _ => Some(TranslationContext {
+                process_name: info.process_name.clone(),
+                profile_name: info.matched_profile.clone(),
+            }),
+        }
+    };
+
     // Call translation engine (acquire read lock, clone Arc, release lock before async call)
     let engine = translation_state.engine.read().unwrap().clone();
     let result = match engine
-        .translate(&text, &settings.source_lang, &settings.target_lang)
+        .translate(
+            &text,
+            &settings.source_lang,
+            &settings.target_lang,
+            context.as_ref(),
+        )
         .await
     {
         Ok(r) => r,
         Err(e) => {
-            emit_error(&app_handle, ErrorPayload {
-                code: "NETWORK_ERROR".to_string(),
-                message: e.to_string(),
-            }, true);
+            match &e {
+                TranslationError::InvalidApiKey => {
+                    emit_error(
+                        &app_handle,
+                        ErrorPayload {
+                            code: "INVALID_API_KEY".to_string(),
+                            message: format!(
+                                "API key required for {} engine. Set it in Settings.",
+                                engine.name()
+                            ),
+                        },
+                        true,
+                    );
+                }
+                _ => {
+                    emit_error(
+                        &app_handle,
+                        ErrorPayload {
+                            code: "NETWORK_ERROR".to_string(),
+                            message: e.to_string(),
+                        },
+                        true,
+                    );
+                }
+            }
             return Err(e.to_string());
         }
     };
@@ -356,12 +433,14 @@ pub async fn translate_text(
     // Restore focus to the previously foreground window
     #[cfg(target_os = "windows")]
     {
-        use windows::Win32::UI::WindowsAndMessaging::SetForegroundWindow;
         use windows::Win32::Foundation::HWND;
+        use windows::Win32::UI::WindowsAndMessaging::SetForegroundWindow;
 
         let stored = focus_state.hwnd.lock().unwrap().take();
         if let Some(raw_hwnd) = stored {
-            unsafe { let _ = SetForegroundWindow(HWND(raw_hwnd as *mut _)); }
+            unsafe {
+                let _ = SetForegroundWindow(HWND(raw_hwnd as *mut _));
+            }
         }
     }
 
@@ -396,28 +475,38 @@ pub async fn ocr_capture_region(
     screenshot_state: tauri::State<'_, ScreenshotState>,
     translation_state: tauri::State<'_, TranslationState>,
     settings_state: tauri::State<'_, SettingsState>,
+    active_game_state: tauri::State<'_, ActiveGameState>,
     app_handle: tauri::AppHandle,
 ) -> Result<TranslationResult, String> {
     // 1. Get screenshot from state
     let screenshot = match screenshot_state.png_data.lock().unwrap().clone() {
         Some(s) => s,
         None => {
-            emit_error(&app_handle, ErrorPayload {
-                code: "OCR_ERROR".to_string(),
-                message: "No screenshot available. Start OCR flow first.".to_string(),
-            }, true);
+            emit_error(
+                &app_handle,
+                ErrorPayload {
+                    code: "OCR_ERROR".to_string(),
+                    message: "No screenshot available. Start OCR flow first.".to_string(),
+                },
+                true,
+            );
             return Err("No screenshot available. Start OCR flow first.".to_string());
         }
     };
 
     // 2. Crop the region
-    let cropped_png = match capture::capture_region(&screenshot, x, y, width as u32, height as u32) {
+    let cropped_png = match capture::capture_region(&screenshot, x, y, width as u32, height as u32)
+    {
         Ok(c) => c,
         Err(e) => {
-            emit_error(&app_handle, ErrorPayload {
-                code: "OCR_ERROR".to_string(),
-                message: format!("Failed to capture region: {}", e),
-            }, true);
+            emit_error(
+                &app_handle,
+                ErrorPayload {
+                    code: "OCR_ERROR".to_string(),
+                    message: format!("Failed to capture region: {}", e),
+                },
+                true,
+            );
             return Err(format!("Failed to capture region: {}", e));
         }
     };
@@ -430,7 +519,9 @@ pub async fn ocr_capture_region(
             let cropped_clone = cropped_png.clone();
             match tokio::task::spawn_blocking(move || {
                 ocr::preprocess_for_ocr(&cropped_clone, binarize)
-            }).await {
+            })
+            .await
+            {
                 Ok(Ok(processed)) => {
                     eprintln!("[OCR] Pre-processing applied (binarize={})", binarize);
                     processed
@@ -453,10 +544,14 @@ pub async fn ocr_capture_region(
     let ocr_result = match ocr::ocr_region(&processed_png).await {
         Ok(r) => r,
         Err(e) => {
-            emit_error(&app_handle, ErrorPayload {
-                code: "OCR_ERROR".to_string(),
-                message: format!("OCR failed: {}", e),
-            }, true);
+            emit_error(
+                &app_handle,
+                ErrorPayload {
+                    code: "OCR_ERROR".to_string(),
+                    message: format!("OCR failed: {}", e),
+                },
+                true,
+            );
             return Err(format!("OCR failed: {}", e));
         }
     };
@@ -476,10 +571,14 @@ pub async fn ocr_capture_region(
         };
 
         emit_result(&app_handle, &error_payload, true);
-        emit_error(&app_handle, ErrorPayload {
-            code: "OCR_EMPTY".to_string(),
-            message: "No text detected in selection".to_string(),
-        }, true);
+        emit_error(
+            &app_handle,
+            ErrorPayload {
+                code: "OCR_EMPTY".to_string(),
+                message: "No text detected in selection".to_string(),
+            },
+            true,
+        );
         return Err("No text detected in selection".to_string());
     }
 
@@ -488,18 +587,56 @@ pub async fn ocr_capture_region(
     // 5. Get settings
     let settings = settings_state.settings.lock().unwrap().clone();
 
-    // 6. Translate (acquire read lock, clone Arc, release lock before async call)
+    // 6. Build TranslationContext from active game info
+    let context = {
+        let info = active_game_state.info.lock().unwrap();
+        match (&info.process_name, &info.matched_profile) {
+            (None, None) => None,
+            _ => Some(TranslationContext {
+                process_name: info.process_name.clone(),
+                profile_name: info.matched_profile.clone(),
+            }),
+        }
+    };
+
+    // 7. Translate (acquire read lock, clone Arc, release lock before async call)
     let engine = translation_state.engine.read().unwrap().clone();
     let translation_result = match engine
-        .translate(&original_text, &settings.source_lang, &settings.target_lang)
+        .translate(
+            &original_text,
+            &settings.source_lang,
+            &settings.target_lang,
+            context.as_ref(),
+        )
         .await
     {
         Ok(r) => r,
         Err(e) => {
-            emit_error(&app_handle, ErrorPayload {
-                code: "NETWORK_ERROR".to_string(),
-                message: format!("Translation failed: {}", e),
-            }, true);
+            match &e {
+                TranslationError::InvalidApiKey => {
+                    emit_error(
+                        &app_handle,
+                        ErrorPayload {
+                            code: "INVALID_API_KEY".to_string(),
+                            message: format!(
+                                "API key required for {} engine. Set it in Settings.",
+                                engine.name()
+                            ),
+                        },
+                        true,
+                    );
+                }
+                _ => {
+                    emit_error(
+                        &app_handle,
+                        ErrorPayload {
+                            code: "NETWORK_ERROR".to_string(),
+                            message: format!("Translation failed: {}", e),
+                        },
+                        true,
+                    );
+                }
+            }
             return Err(format!("Translation failed: {}", e));
         }
     };
@@ -556,17 +693,51 @@ pub async fn translate_chat(
     text: String,
     translation_state: tauri::State<'_, TranslationState>,
     settings_state: tauri::State<'_, SettingsState>,
+    active_game_state: tauri::State<'_, ActiveGameState>,
     _history_state: tauri::State<'_, HistoryState>,
+    app_handle: tauri::AppHandle,
 ) -> Result<TranslationResult, String> {
     // Get settings for source/target languages
     let settings = settings_state.settings.lock().unwrap().clone();
 
+    // Build TranslationContext from active game info
+    let context = {
+        let info = active_game_state.info.lock().unwrap();
+        match (&info.process_name, &info.matched_profile) {
+            (None, None) => None,
+            _ => Some(TranslationContext {
+                process_name: info.process_name.clone(),
+                profile_name: info.matched_profile.clone(),
+            }),
+        }
+    };
+
     // Call translation engine (acquire read lock, clone Arc, release lock before async call)
     let engine = translation_state.engine.read().unwrap().clone();
     let result = engine
-        .translate(&text, &settings.source_lang, &settings.target_lang)
+        .translate(
+            &text,
+            &settings.source_lang,
+            &settings.target_lang,
+            context.as_ref(),
+        )
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| {
+            if let TranslationError::InvalidApiKey = &e {
+                emit_error(
+                    &app_handle,
+                    ErrorPayload {
+                        code: "INVALID_API_KEY".to_string(),
+                        message: format!(
+                            "API key required for {} engine. Set it in Settings.",
+                            engine.name()
+                        ),
+                    },
+                    true,
+                );
+            }
+            e.to_string()
+        })?;
 
     let translated_result = TranslationResult {
         original: text.clone(),
@@ -666,8 +837,10 @@ pub fn drag_result_window_noactivate(x: i32, y: i32, app_handle: tauri::AppHandl
     if let Some(window) = app_handle.get_webview_window("result") {
         #[cfg(target_os = "windows")]
         {
-            use windows::Win32::UI::WindowsAndMessaging::{SetWindowPos, SWP_NOACTIVATE, SWP_NOSIZE, SWP_NOZORDER};
             use windows::Win32::Foundation::HWND;
+            use windows::Win32::UI::WindowsAndMessaging::{
+                SetWindowPos, SWP_NOACTIVATE, SWP_NOSIZE, SWP_NOZORDER,
+            };
 
             if let Ok(hwnd) = window.hwnd() {
                 unsafe {
@@ -698,9 +871,9 @@ pub async fn get_history(
     _history: tauri::State<'_, HistoryState>,
 ) -> Result<Vec<HistoryEntry>, String> {
     let (limit, offset) = (limit, offset);
-    tokio::task::spawn_blocking(move || {
-        history::HistoryDb::get_all(limit, offset)
-    }).await.map_err(|e| format!("Task join error: {}", e))?
+    tokio::task::spawn_blocking(move || history::HistoryDb::get_all(limit, offset))
+        .await
+        .map_err(|e| format!("Task join error: {}", e))?
 }
 
 /// Search translation history using FTS5
@@ -711,14 +884,14 @@ pub async fn search_history(
 ) -> Result<Vec<HistoryEntry>, String> {
     let query = query.trim().to_string();
     if query.is_empty() {
-        return tokio::task::spawn_blocking(move || {
-            history::HistoryDb::get_all(50, 0)
-        }).await.map_err(|e| format!("Task join error: {}", e))?;
+        return tokio::task::spawn_blocking(move || history::HistoryDb::get_all(50, 0))
+            .await
+            .map_err(|e| format!("Task join error: {}", e))?;
     }
     let query_for_search = query.clone();
-    tokio::task::spawn_blocking(move || {
-        history::HistoryDb::search(&query_for_search)
-    }).await.map_err(|e| format!("Task join error: {}", e))?
+    tokio::task::spawn_blocking(move || history::HistoryDb::search(&query_for_search))
+        .await
+        .map_err(|e| format!("Task join error: {}", e))?
 }
 
 /// Export translation history as JSON or CSV
@@ -728,18 +901,17 @@ pub async fn export_history(
     _history: tauri::State<'_, HistoryState>,
 ) -> Result<String, String> {
     let format = format.clone();
-    tokio::task::spawn_blocking(move || {
-        history::HistoryDb::export(&format)
-    }).await.map_err(|e| format!("Task join error: {}", e))?
+    tokio::task::spawn_blocking(move || history::HistoryDb::export(&format))
+        .await
+        .map_err(|e| format!("Task join error: {}", e))?
 }
 
 /// Clear all translation history
 #[tauri::command]
-pub async fn clear_history(
-    _history: tauri::State<'_, HistoryState>,
-) -> Result<(), String> {
+pub async fn clear_history(_history: tauri::State<'_, HistoryState>) -> Result<(), String> {
     tokio::task::spawn_blocking(history::HistoryDb::clear)
-        .await.map_err(|e| format!("Task join error: {}", e))?
+        .await
+        .map_err(|e| format!("Task join error: {}", e))?
 }
 
 /// Delete a specific history entry by ID
@@ -749,9 +921,9 @@ pub async fn delete_history_entry(
     _history: tauri::State<'_, HistoryState>,
 ) -> Result<(), String> {
     let id = id;
-    tokio::task::spawn_blocking(move || {
-        history::HistoryDb::delete(id)
-    }).await.map_err(|e| format!("Task join error: {}", e))?
+    tokio::task::spawn_blocking(move || history::HistoryDb::delete(id))
+        .await
+        .map_err(|e| format!("Task join error: {}", e))?
 }
 
 // ============================================================================
@@ -793,7 +965,10 @@ pub async fn add_profile(
     let matches_active = {
         let info = active_game.info.lock().unwrap();
         info.process_name.as_ref().map_or(false, |pn| {
-            profile.process_names.iter().any(|n| n.eq_ignore_ascii_case(pn))
+            profile
+                .process_names
+                .iter()
+                .any(|n| n.eq_ignore_ascii_case(pn))
         })
     };
 
@@ -836,7 +1011,10 @@ pub async fn add_profile(
     }
 
     let _ = app_handle.emit("settings-changed", &overridden_settings);
-    eprintln!("[PROFILE] Added profile '{}' (matches_active={})", profile.display_name, matches_active);
+    eprintln!(
+        "[PROFILE] Added profile '{}' (matches_active={})",
+        profile.display_name, matches_active
+    );
     Ok(())
 }
 
@@ -897,7 +1075,10 @@ pub async fn remove_profile(
     }
 
     let _ = app_handle.emit("settings-changed", &updated_settings);
-    eprintln!("[PROFILE] Removed profile '{}' (was_active={})", display_name, was_active);
+    eprintln!(
+        "[PROFILE] Removed profile '{}' (was_active={})",
+        display_name, was_active
+    );
     Ok(())
 }
 
@@ -921,7 +1102,10 @@ pub async fn update_profile(
     // 1. Replace in saved_defaults and persist
     {
         let mut saved = settings_state.saved_defaults.lock().unwrap().clone();
-        let pos = saved.profiles.iter().position(|p| p.display_name == display_name)
+        let pos = saved
+            .profiles
+            .iter()
+            .position(|p| p.display_name == display_name)
             .ok_or_else(|| format!("Profile '{}' not found", display_name))?;
         saved.profiles[pos] = profile.clone();
         settings::save_settings_to_disk(&saved)?;
@@ -931,7 +1115,11 @@ pub async fn update_profile(
     // 2. Replace in active settings; re-apply overrides if active
     let updated_settings = {
         let mut settings = settings_state.settings.lock().unwrap().clone();
-        if let Some(pos) = settings.profiles.iter().position(|p| p.display_name == display_name) {
+        if let Some(pos) = settings
+            .profiles
+            .iter()
+            .position(|p| p.display_name == display_name)
+        {
             settings.profiles[pos] = profile.clone();
         }
 
@@ -956,7 +1144,10 @@ pub async fn update_profile(
         let _ = app_handle.emit("active-game-changed", &info);
     }
     let _ = app_handle.emit("settings-changed", &updated_settings);
-    eprintln!("[PROFILE] Updated profile '{}' (is_active={})", display_name, is_active);
+    eprintln!(
+        "[PROFILE] Updated profile '{}' (is_active={})",
+        display_name, is_active
+    );
     Ok(())
 }
 
@@ -1020,10 +1211,7 @@ mod tests {
     fn test_profile_match_case_insensitive() {
         let profile = GameProfile {
             display_name: "Path of Exile".to_string(),
-            process_names: vec![
-                "poe2.exe".to_string(),
-                "PathOfExile_x64.exe".to_string(),
-            ],
+            process_names: vec!["poe2.exe".to_string(), "PathOfExile_x64.exe".to_string()],
             source_lang: None,
             target_lang: Some("es".to_string()),
             engine: None,
@@ -1087,20 +1275,20 @@ mod tests {
         let profile = GameProfile {
             display_name: "POE".to_string(),
             process_names: vec!["poe2.exe".to_string()],
-            source_lang: None,               // Don't override
+            source_lang: None,                   // Don't override
             target_lang: Some("ja".to_string()), // Override
-            engine: Some("gemini".to_string()),   // Override
-            ocr_preprocessing: None,          // Don't override
-            ocr_binarize: Some(true),         // Override
+            engine: Some("gemini".to_string()),  // Override
+            ocr_preprocessing: None,             // Don't override
+            ocr_binarize: Some(true),            // Override
         };
 
         let result = apply_profile_overrides(&base_settings, &profile);
 
-        assert_eq!(result.source_lang, "en");       // Not overridden
-        assert_eq!(result.target_lang, "ja");        // Overridden
-        assert_eq!(result.engine, "gemini");          // Overridden
-        assert_eq!(result.ocr_preprocessing, true);   // Not overridden
-        assert_eq!(result.ocr_binarize, true);        // Overridden
+        assert_eq!(result.source_lang, "en"); // Not overridden
+        assert_eq!(result.target_lang, "ja"); // Overridden
+        assert_eq!(result.engine, "gemini"); // Overridden
+        assert_eq!(result.ocr_preprocessing, true); // Not overridden
+        assert_eq!(result.ocr_binarize, true); // Overridden
     }
 
     #[test]
@@ -1125,4 +1313,3 @@ mod tests {
         assert_eq!(settings.target_lang, "es");
     }
 }
-
