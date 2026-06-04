@@ -177,7 +177,8 @@ pub fn run() {
             #[cfg(windows)]
             {
                 let shutdown = Arc::new(std::sync::atomic::AtomicBool::new(false));
-                let settings_arc = settings_state.settings.clone();
+                // Retrieve settings Arc from managed state (settings_state was moved into app.manage above)
+                let settings_arc: Arc<Mutex<Settings>> = app.state::<SettingsState>().settings.clone();
                 let handle = game_detection::spawn_detector(
                     app.handle().clone(),
                     shutdown.clone(),
