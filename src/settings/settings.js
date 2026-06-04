@@ -43,7 +43,6 @@ const profileForm = document.getElementById('profile-form');
 const profileFormTitle = document.getElementById('profile-form-title');
 const profileDisplayName = document.getElementById('profile-display-name');
 const profileProcessNames = document.getElementById('profile-process-names');
-const profileAutoFill = document.getElementById('profile-auto-fill');
 const profileSourceLang = document.getElementById('profile-source-lang');
 const profileTargetLang = document.getElementById('profile-target-lang');
 const profileEngine = document.getElementById('profile-engine');
@@ -409,26 +408,6 @@ async function deleteProfile(displayName) {
     }
 }
 
-// Auto-fill the process names field from the current foreground game
-// Note: only works when the game is in foreground, not from Settings window
-async function autoFillProcessName() {
-    try {
-        const info = await invoke('get_active_game');
-        if (info && info.process_name) {
-            // Filter out our own process
-            if (info.process_name.toLowerCase() === 'overlex.exe') {
-                showMessage('Cannot auto-detect from Settings. Please type the game\'s process name manually (e.g., PathOfExileSteam.exe)', true);
-                return;
-            }
-            profileProcessNames.value = info.process_name;
-        } else {
-            showMessage('No active game detected. Please type the process name manually (e.g., PathOfExileSteam.exe)', true);
-        }
-    } catch (e) {
-        showMessage('Failed to get active game: ' + e, true);
-    }
-}
-
 // Update the active profile banner based on activeGameInfo
 function updateBanner() {
     if (!activeGameInfo || !activeGameInfo.matched_profile) {
@@ -646,7 +625,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     addProfileBtn.addEventListener('click', () => openProfileForm());
     profileCancelBtn.addEventListener('click', closeProfileForm);
     profileSaveBtn.addEventListener('click', saveProfile);
-    profileAutoFill.addEventListener('click', autoFillProcessName);
 
     // --- Show debug checkbox ---
     showDebugCheckbox.addEventListener('change', async () => {
