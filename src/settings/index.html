@@ -242,6 +242,87 @@
             color: var(--text-secondary);
             font-style: italic;
         }
+
+        /* API Key Help Modal */
+        #api-key-modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+        #api-key-modal.visible {
+            display: flex;
+        }
+        #api-key-modal-content {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 20px;
+            max-width: 480px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+            position: relative;
+        }
+        #api-key-modal h3 {
+            color: var(--accent);
+            margin-bottom: 12px;
+            font-size: 1.1rem;
+        }
+        #api-key-modal p {
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            margin-bottom: 10px;
+            line-height: 1.5;
+        }
+        #api-key-modal ol {
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            margin: 10px 0 10px 20px;
+            line-height: 1.6;
+        }
+        #api-key-modal li {
+            margin-bottom: 6px;
+        }
+        #api-key-modal a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+        #api-key-modal a:hover {
+            text-decoration: underline;
+        }
+        #api-key-modal-close {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 20px;
+            cursor: pointer;
+            width: 28px;
+            height: 28px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 4px;
+        }
+        #api-key-modal-close:hover {
+            background: rgba(255,255,255,0.1);
+            color: #fff;
+        }
+        .api-key-note {
+            background: rgba(78, 154, 241, 0.1);
+            border: 1px solid rgba(78, 154, 241, 0.3);
+            border-radius: 4px;
+            padding: 8px 10px;
+            margin-top: 12px;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
     </style>
 </head>
 <body>
@@ -306,13 +387,16 @@
 
         <div class="form-group">
             <label for="engine">Translation Engine</label>
-            <select id="engine">
-                <option value="google_gtx">Google GTX (Free)</option>
-                <option value="mymemory">MyMemory (Free)</option>
-                <option value="libretranslate">LibreTranslate (Requires API Key)</option>
-                <option value="gemini">Gemini 2.0 Flash (Requires API Key)</option>
-                <option value="deepl">DeepL Free (Requires API Key)</option>
-            </select>
+            <div style="display: flex; gap: 8px; align-items: center;">
+                <select id="engine" style="flex: 1;">
+                    <option value="google_gtx">Google GTX (Free)</option>
+                    <option value="mymemory">MyMemory (Free)</option>
+                    <option value="libretranslate">LibreTranslate (Requires API Key)</option>
+                    <option value="gemini">Gemini 2.0 Flash (Requires API Key)</option>
+                    <option value="deepl">DeepL Free (Requires API Key)</option>
+                </select>
+                <button id="engine-help-btn" type="button" title="How to get API key" style="background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 4px; color: var(--text-secondary); cursor: pointer; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0;">?</button>
+            </div>
         </div>
 
         <div class="form-group">
@@ -501,6 +585,15 @@
     <button id="save-btn">Save Settings</button>
 
     <div id="message"></div>
+
+    <!-- API Key Help Modal -->
+    <div id="api-key-modal">
+        <div id="api-key-modal-content">
+            <button id="api-key-modal-close">&times;</button>
+            <h3 id="api-key-modal-title">How to get your API Key</h3>
+            <div id="api-key-modal-body"></div>
+        </div>
+    </div>
 
     <script src="settings.js"></script>
 </body>

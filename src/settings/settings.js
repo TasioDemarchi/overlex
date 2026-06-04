@@ -28,6 +28,13 @@ const historyPanel = document.getElementById('history-panel');
 const historySearchInput = document.getElementById('history-search');
 const historyList = document.getElementById('history-list');
 const historyLoadMoreBtn = document.getElementById('history-load-more');
+
+// API Key help modal elements
+const engineHelpBtn = document.getElementById('engine-help-btn');
+const apiKeyModal = document.getElementById('api-key-modal');
+const apiKeyModalClose = document.getElementById('api-key-modal-close');
+const apiKeyModalTitle = document.getElementById('api-key-modal-title');
+const apiKeyModalBody = document.getElementById('api-key-modal-body');
 const historyExportJsonBtn = document.getElementById('history-export-json');
 const historyExportCsvBtn = document.getElementById('history-export-csv');
 const historyClearBtn = document.getElementById('history-clear');
@@ -673,5 +680,113 @@ document.addEventListener('DOMContentLoaded', async () => {
                 showDebugCheckbox.checked = s.show_debug;
             }
         }).catch(e => console.error('Failed to listen settings-changed:', e));
+    }
+});
+
+// ============================================================
+// API Key Help Modal
+// ============================================================
+
+const API_KEY_HELP = {
+    gemini: {
+        title: 'Get Gemini API Key (Free)',
+        content: `
+            <p>Gemini 2.0 Flash offers a generous free tier with 15 requests/minute and 1M tokens/minute.</p>
+            <ol>
+                <li>Go to <a href="https://aistudio.google.com/apikey" target="_blank">Google AI Studio</a></li>
+                <li>Sign in with your Google account</li>
+                <li>Click <strong>"Create API Key"</strong></li>
+                <li>Copy the generated key</li>
+                <li>Paste it here and click Save</li>
+            </ol>
+            <div class="api-key-note">
+                <strong>Free tier includes:</strong> 15 requests/min, 1M tokens/min. No credit card required.
+            </div>
+        `
+    },
+    deepl: {
+        title: 'Get DeepL API Key (Free)',
+        content: `
+            <p>DeepL offers 500,000 characters/month free with their API.</p>
+            <ol>
+                <li>Go to <a href="https://www.deepl.com/pro-api" target="_blank">DeepL API</a></li>
+                <li>Click "Get started for free"</li>
+                <li>Create an account or sign in</li>
+                <li>Navigate to your account's <strong>"API Keys"</strong> section</li>
+                <li>Copy your authentication key</li>
+                <li>Paste it here and click Save</li>
+            </ol>
+            <div class="api-key-note">
+                <strong>Free tier includes:</strong> 500K characters/month. Translations are cached for consecutive identical texts.
+            </div>
+        `
+    },
+    libretranslate: {
+        title: 'Get LibreTranslate API Key',
+        content: `
+            <p>LibreTranslate requires running your own instance or using a public API with authentication.</p>
+            <ol>
+                <li>Option A: Use a public LibreTranslate server (may require API key)</li>
+                <li>Option B: Run your own <a href="https://github.com/LibreTranslate/LibreTranslate" target="_blank">LibreTranslate server</a></li>
+                <li>If using a public server, obtain the API key from that provider</li>
+                <li>Paste it here and click Save</li>
+            </ol>
+            <div class="api-key-note">
+                <strong>Note:</strong> LibreTranslate is open source. Running your own server gives you full control with no API costs.
+            </div>
+        `
+    },
+    google_gtx: {
+        title: 'Google GTX (No API Key Required)',
+        content: `
+            <p>Google GTX is a free, unofficial Google Translate endpoint. No API key is needed.</p>
+            <div class="api-key-note">
+                <strong>How it works:</strong> Uses Google's unofficial translation API directly. Best-effort translation with no rate limits or quotas enforced.
+            </div>
+        `
+    },
+    mymemory: {
+        title: 'MyMemory (No API Key Required)',
+        content: `
+            <p>MyMemory offers 5,000 characters/day free without registration (or 50,000/day with email).</p>
+            <div class="api-key-note">
+                <strong>How it works:</strong> Free machine translation service. No API key needed. Daily limit resets at midnight (UTC).
+            </div>
+        `
+    }
+};
+
+// Open help modal
+engineHelpBtn.addEventListener('click', () => {
+    const engine = engineSelect.value;
+    const help = API_KEY_HELP[engine];
+
+    if (help) {
+        apiKeyModalTitle.textContent = help.title;
+        apiKeyModalBody.innerHTML = help.content;
+    } else {
+        apiKeyModalTitle.textContent = 'API Key Help';
+        apiKeyModalBody.innerHTML = '<p>Select an engine to see instructions.</p>';
+    }
+
+    apiKeyModal.classList.add('visible');
+});
+
+// Close modal
+apiKeyModalClose.addEventListener('click', () => {
+    apiKeyModal.classList.remove('visible');
+});
+
+// Close modal when clicking outside
+apiKeyModal.addEventListener('click', (e) => {
+    if (e.target === apiKeyModal) {
+        apiKeyModal.classList.remove('visible');
+    }
+});
+
+// Close modal on Escape key
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && apiKeyModal.classList.contains('visible')) {
+        apiKeyModal.classList.remove('visible');
     }
 });
