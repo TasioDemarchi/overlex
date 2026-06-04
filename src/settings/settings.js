@@ -512,7 +512,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         writeHotkeyInput.value = settings.write_hotkey || '';
         sourceLangSelect.value = settings.source_lang || 'auto';
         targetLangSelect.value = settings.target_lang || 'es';
-        engineSelect.value = settings.engine || 'libretranslate';
+        engineSelect.value = settings.engine || 'google_gtx';
         overlayPositionSelect.value = settings.overlay_position || 'near-selection';
 
         // Handle auto-dismiss: if timeout > 0, check and show; if 0, uncheck and hide
@@ -578,6 +578,8 @@ saveBtn.addEventListener('click', async () => {
         ocr_binarize: ocrBinarizeCheckbox.checked,
         // History
         history_enabled: historyEnabledCheckbox.checked,
+        // Debug indicator
+        show_debug: showDebugCheckbox.checked,
     };
 
     // Validate hotkeys are set

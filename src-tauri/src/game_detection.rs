@@ -197,10 +197,18 @@ pub fn spawn_detector(
                         Ok(()) => {
                             let full_path = String::from_utf16_lossy(&buffer[..size as usize]);
                             let file_name = extract_filename(&full_path);
-                            if file_name.is_some() {
+                            if let Some(ref name) = file_name {
+                                // Skip our own process — OverLex windows (Settings, etc.)
+                                // should not trigger game-changed events.
+                                if name.eq_ignore_ascii_case("overlex.exe") {
+                                    eprintln!("[GAME_DETECT] Skipping own process: {} (PID {pid})", name);
+                                    last_hwnd = Some(hwnd_raw);
+                                    thread::sleep(Duration::from_millis(1000));
+                                    continue;
+                                }
                                 eprintln!(
                                     "[GAME_DETECT] Foreground: {} (PID {pid})",
-                                    file_name.as_ref().unwrap()
+                                    name
                                 );
                             }
                             file_name
