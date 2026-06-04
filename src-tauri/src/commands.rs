@@ -55,7 +55,8 @@ pub fn add_log(level: &str, message: &str) {
 
         // Keep only recent entries
         if buffer.len() > MAX_LOG_ENTRIES {
-            buffer.drain(0..buffer.len() - MAX_LOG_ENTRIES);
+            let excess = buffer.len() - MAX_LOG_ENTRIES;
+            buffer.drain(0..excess);
         }
     }
 }
