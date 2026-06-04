@@ -23,37 +23,80 @@ impl GeminiAdapter {
         Self { api_key, client }
     }
 
+    /// Convert language code to human-readable name
+    fn language_name(code: &str) -> String {
+        match code.to_lowercase().as_str() {
+            "auto" => "auto-detect".to_string(),
+            "en" => "English".to_string(),
+            "es" => "Spanish".to_string(),
+            "fr" => "French".to_string(),
+            "de" => "German".to_string(),
+            "it" => "Italian".to_string(),
+            "pt" => "Portuguese".to_string(),
+            "ru" => "Russian".to_string(),
+            "ja" => "Japanese".to_string(),
+            "ko" => "Korean".to_string(),
+            "zh" => "Chinese".to_string(),
+            "ar" => "Arabic".to_string(),
+            "hi" => "Hindi".to_string(),
+            "tr" => "Turkish".to_string(),
+            "pl" => "Polish".to_string(),
+            "nl" => "Dutch".to_string(),
+            "sv" => "Swedish".to_string(),
+            "da" => "Danish".to_string(),
+            "fi" => "Finnish".to_string(),
+            "no" => "Norwegian".to_string(),
+            "cs" => "Czech".to_string(),
+            "el" => "Greek".to_string(),
+            "he" => "Hebrew".to_string(),
+            "th" => "Thai".to_string(),
+            "vi" => "Vietnamese".to_string(),
+            "id" => "Indonesian".to_string(),
+            "ms" => "Malay".to_string(),
+            "uk" => "Ukrainian".to_string(),
+            "hu" => "Hungarian".to_string(),
+            "ro" => "Romanian".to_string(),
+            "bg" => "Bulgarian".to_string(),
+            "sk" => "Slovak".to_string(),
+            _ => code.to_string(), // Return as-is if unknown
+        }
+    }
+
     /// Build the system instruction based on game context availability
     fn build_system_instruction(
         source: &str,
         target: &str,
         context: Option<&TranslationContext>,
     ) -> String {
+        let source_name = Self::language_name(source);
+        let target_name = Self::language_name(target);
+        let lang_pair = format!("{} → {}", source_name, target_name);
+
         if let Some(ctx) = context {
             match (&ctx.process_name, &ctx.profile_name) {
                 (Some(proc), Some(profile)) => {
                     format!(
-                        "You are a professional game translator. Translate the following text from {} to {}. Game context: {} (profile: {}). Respond ONLY with the translated text, no explanations, no quotes, no markdown.",
-                        source, target, proc, profile
+                        "You are a professional game translator. Translate the following text from {}. Game context: {} (profile: {}). Only respond with the translated text, no explanations, no quotes, no markdown.",
+                        lang_pair, proc, profile
                     )
                 }
                 (Some(proc), None) => {
                     format!(
-                        "You are a professional game translator. Translate the following text from {} to {}. Game context: {}. Respond ONLY with the translated text, no explanations, no quotes, no markdown.",
-                        source, target, proc
+                        "You are a professional game translator. Translate the following text from {}. Game context: {}. Only respond with the translated text, no explanations, no quotes, no markdown.",
+                        lang_pair, proc
                     )
                 }
                 _ => {
                     format!(
-                        "You are a professional translator. Translate the following text from {} to {}. Respond ONLY with the translated text, no explanations, no quotes, no markdown.",
-                        source, target
+                        "You are a professional translator. Translate the following text from {}. Only respond with the translated text, no explanations, no quotes, no markdown.",
+                        lang_pair
                     )
                 }
             }
         } else {
             format!(
-                "You are a professional translator. Translate the following text from {} to {}. Respond ONLY with the translated text, no explanations, no quotes, no markdown.",
-                source, target
+                "You are a professional translator. Translate the following text from {}. Only respond with the translated text, no explanations, no quotes, no markdown.",
+                lang_pair
             )
         }
     }
