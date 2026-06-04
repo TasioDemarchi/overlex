@@ -273,6 +273,9 @@ pub fn run() {
                         "fullscreen_exclusive": info.fullscreen_exclusive,
                         "matched_profile": info.matched_profile,
                     }));
+
+                    // Step 7: Emit settings-changed so frontend updates engine/language display.
+                    let _ = app_handle_game.emit("settings-changed", &effective_settings);
                 });
             }
 

@@ -586,6 +586,8 @@ saveBtn.addEventListener('click', async () => {
         history_enabled: historyEnabledCheckbox.checked,
         // Debug indicator
         show_debug: showDebugCheckbox.checked,
+        // Game profiles (must be included to avoid deleting them on save)
+        profiles: profiles,
     };
 
     // Validate hotkeys are set
