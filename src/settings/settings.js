@@ -591,9 +591,10 @@ saveBtn.addEventListener('click', async () => {
         await invoke('save_settings', { settings });
 
         // Also save API key separately if provided
+        // Use current dropdown value, not the loaded settings object
         if (apiKeyInput.value) {
             await invoke('set_api_key', {
-                engine: settings.engine,
+                engine: engineSelect.value,
                 key: apiKeyInput.value
             });
         }
