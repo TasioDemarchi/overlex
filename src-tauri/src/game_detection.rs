@@ -11,17 +11,15 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 
 use crate::commands::Settings;
 
-use windows::Win32::Foundation::{HANDLE, HWND, RECT, BOOL};
+use windows::Win32::Foundation::{HWND, RECT, BOOL};
 use windows::Win32::System::Threading::{
-    OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
-};
-use windows::Win32::System::ProcessStatus::{
-    QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
+    OpenProcess, QueryFullProcessImageNameW,
+    PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_NAME_WIN32,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     GetForegroundWindow, GetWindowThreadProcessId, GetWindowLongPtrW,
@@ -107,7 +105,7 @@ fn is_fullscreen_exclusive(hwnd: HWND) -> bool {
             dwFlags: 0,
         };
 
-        if GetMonitorInfoW(monitor, &mut mi).is_ok() {
+        if GetMonitorInfoW(monitor, &mut mi).0 != 0 {
             let mon_w = mi.rcMonitor.right - mi.rcMonitor.left;
             let mon_h = mi.rcMonitor.bottom - mi.rcMonitor.top;
             return win_w >= mon_w && win_h >= mon_h;
