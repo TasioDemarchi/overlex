@@ -1,6 +1,7 @@
 // Settings panel - load/save settings via Tauri invoke
 
 const { invoke } = window.__TAURI__.core;
+const listen = window.__TAURI__?.event?.listen;
 
 // DOM elements
 const ocrHotkeyInput = document.getElementById('ocr-hotkey');
@@ -31,10 +32,35 @@ const historyExportJsonBtn = document.getElementById('history-export-json');
 const historyExportCsvBtn = document.getElementById('history-export-csv');
 const historyClearBtn = document.getElementById('history-clear');
 
+// Profile elements
+const activeProfileBanner = document.getElementById('active-profile-banner');
+const activeProfileName = document.getElementById('active-profile-name');
+const activeProfileDetails = document.getElementById('active-profile-details');
+const showDebugCheckbox = document.getElementById('show-debug');
+const profileList = document.getElementById('profile-list');
+const addProfileBtn = document.getElementById('add-profile-btn');
+const profileForm = document.getElementById('profile-form');
+const profileFormTitle = document.getElementById('profile-form-title');
+const profileDisplayName = document.getElementById('profile-display-name');
+const profileProcessNames = document.getElementById('profile-process-names');
+const profileAutoFill = document.getElementById('profile-auto-fill');
+const profileSourceLang = document.getElementById('profile-source-lang');
+const profileTargetLang = document.getElementById('profile-target-lang');
+const profileEngine = document.getElementById('profile-engine');
+const profileOcrPreprocessing = document.getElementById('profile-ocr-preprocessing');
+const profileOcrBinarize = document.getElementById('profile-ocr-binarize');
+const profileSaveBtn = document.getElementById('profile-save-btn');
+const profileCancelBtn = document.getElementById('profile-cancel-btn');
+
 // History state
 let historyOffset = 0;
 let historyHasMore = true;
 let currentSettings = null;
+
+// Profile state
+let profiles = [];
+let editingProfile = null;
+let activeGameInfo = null;
 
 // Show message (success or error)
 function showMessage(text, isError = false) {
@@ -236,6 +262,195 @@ async function clearHistory() {
     }
 }
 
+// ============================================================
+// Game Profiles CRUD
+// ============================================================
+
+// Render all profiles into #profile-list
+function renderProfiles() {
+    profileList.innerHTML = '';
+    if (profiles.length === 0) {
+        profileList.innerHTML = '<div style="color: var(--text-secondary); padding: 8px; font-size: 0.85rem;">No profiles configured</div>';
+        return;
+    }
+    profiles.forEach(profile => {
+        const card = document.createElement('div');
+        card.className = 'profile-card';
+
+        // Process names as monospace tags
+        const processTags = profile.process_names.map(n =>
+            `<code class="process-tag">${escapeHtml(n)}</code>`
+        ).join(' ');
+
+        // Override badges for non-null overrides
+        const badges = [];
+        if (profile.source_lang) badges.push(`<span class="badge badge-lang">src: ${escapeHtml(profile.source_lang)}</span>`);
+        if (profile.target_lang) badges.push(`<span class="badge badge-lang">→ ${escapeHtml(profile.target_lang)}</span>`);
+        if (profile.engine) badges.push(`<span class="badge badge-engine">${escapeHtml(profile.engine)}</span>`);
+        if (profile.ocr_preprocessing) badges.push('<span class="badge badge-ocr">preprocess</span>');
+        if (profile.ocr_binarize) badges.push('<span class="badge badge-ocr">binarize</span>');
+
+        card.innerHTML = `
+            <div class="profile-card-header">
+                <strong>${escapeHtml(profile.display_name)}</strong>
+                <div class="profile-card-actions">
+                    <button class="small-btn edit-profile-btn">Edit</button>
+                    <button class="small-btn danger delete-profile-btn">Delete</button>
+                </div>
+            </div>
+            <div class="profile-card-processes">${processTags}</div>
+            ${badges.length > 0 ? `<div class="profile-card-badges">${badges.join(' ')}</div>` : ''}
+        `;
+
+        // Event listeners for card buttons
+        card.querySelector('.edit-profile-btn').addEventListener('click', () => openProfileForm(profile));
+        card.querySelector('.delete-profile-btn').addEventListener('click', () => deleteProfile(profile.display_name));
+
+        profileList.appendChild(card);
+    });
+}
+
+// Open the profile form for add (no arg) or edit (with profile)
+function openProfileForm(profile) {
+    editingProfile = profile || null;
+
+    if (profile) {
+        profileFormTitle.textContent = 'Edit Profile';
+        profileDisplayName.value = profile.display_name || '';
+        profileProcessNames.value = (profile.process_names || []).join(', ');
+        profileSourceLang.value = profile.source_lang || '';
+        profileTargetLang.value = profile.target_lang || '';
+        profileEngine.value = profile.engine || '';
+        profileOcrPreprocessing.checked = profile.ocr_preprocessing === true;
+        profileOcrBinarize.checked = profile.ocr_binarize === true;
+    } else {
+        profileFormTitle.textContent = 'Add Profile';
+        profileDisplayName.value = '';
+        profileProcessNames.value = '';
+        profileSourceLang.value = '';
+        profileTargetLang.value = '';
+        profileEngine.value = '';
+        profileOcrPreprocessing.checked = false;
+        profileOcrBinarize.checked = false;
+    }
+
+    // Show form, hide list and add button
+    profileForm.style.display = 'block';
+    profileList.style.display = 'none';
+    addProfileBtn.style.display = 'none';
+}
+
+// Close the profile form and return to list view
+function closeProfileForm() {
+    profileForm.style.display = 'none';
+    profileList.style.display = 'block';
+    addProfileBtn.style.display = 'inline-block';
+    editingProfile = null;
+}
+
+// Save a profile (add or update)
+async function saveProfile() {
+    const displayName = profileDisplayName.value.trim();
+    const processNamesRaw = profileProcessNames.value.trim();
+
+    if (!displayName) {
+        showMessage('Display name is required', true);
+        return;
+    }
+    if (!processNamesRaw) {
+        showMessage('At least one process name is required', true);
+        return;
+    }
+
+    const processNames = processNamesRaw.split(',').map(n => n.trim()).filter(n => n.length > 0);
+    if (processNames.length === 0) {
+        showMessage('At least one process name is required', true);
+        return;
+    }
+
+    const profile = {
+        display_name: displayName,
+        process_names: processNames,
+        source_lang: profileSourceLang.value || null,
+        target_lang: profileTargetLang.value || null,
+        engine: profileEngine.value || null,
+        ocr_preprocessing: profileOcrPreprocessing.checked ? true : null,
+        ocr_binarize: profileOcrBinarize.checked ? true : null,
+    };
+
+    try {
+        if (editingProfile) {
+            await invoke('update_profile', { profile });
+        } else {
+            await invoke('add_profile', { profile });
+        }
+
+        // Refresh list from backend
+        profiles = await invoke('list_profiles');
+        renderProfiles();
+        closeProfileForm();
+        showMessage(editingProfile ? 'Profile updated' : 'Profile added');
+    } catch (e) {
+        showMessage('Failed to save profile: ' + e, true);
+    }
+}
+
+// Delete a profile by display name
+async function deleteProfile(displayName) {
+    if (!confirm(`Delete profile "${displayName}"?`)) return;
+
+    try {
+        await invoke('remove_profile', { displayName });
+        profiles = await invoke('list_profiles');
+        renderProfiles();
+        showMessage('Profile deleted');
+    } catch (e) {
+        showMessage('Failed to delete profile: ' + e, true);
+    }
+}
+
+// Auto-fill the process names field from the current foreground game
+async function autoFillProcessName() {
+    try {
+        const info = await invoke('get_active_game');
+        if (info && info.process_name) {
+            profileProcessNames.value = info.process_name;
+        } else {
+            showMessage('No active game detected', true);
+        }
+    } catch (e) {
+        showMessage('Failed to get active game: ' + e, true);
+    }
+}
+
+// Update the active profile banner based on activeGameInfo
+function updateBanner() {
+    if (!activeGameInfo || !activeGameInfo.matched_profile) {
+        activeProfileBanner.style.display = 'none';
+        return;
+    }
+
+    const profile = profiles.find(p => p.display_name === activeGameInfo.matched_profile);
+
+    activeProfileName.textContent = activeGameInfo.matched_profile;
+
+    const details = [];
+    if (activeGameInfo.process_name) {
+        details.push(activeGameInfo.process_name);
+    }
+    if (activeGameInfo.fullscreen_exclusive) {
+        details.push('Exclusive Fullscreen');
+    }
+    if (profile) {
+        if (profile.target_lang) details.push(`Target: ${profile.target_lang}`);
+        if (profile.engine) details.push(`Engine: ${profile.engine}`);
+        if (profile.source_lang) details.push(`Source: ${profile.source_lang}`);
+    }
+
+    activeProfileDetails.textContent = details.join(' · ');
+    activeProfileBanner.style.display = 'block';
+}
+
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', async () => {
     // Setup hotkey capture
@@ -412,3 +627,63 @@ document.addEventListener('keydown', async (e) => {
 });
 
 console.log('Settings panel initialized');
+
+// ============================================================
+// Game Profiles initialization
+// ============================================================
+document.addEventListener('DOMContentLoaded', async () => {
+    // --- Profile form event listeners ---
+    addProfileBtn.addEventListener('click', () => openProfileForm());
+    profileCancelBtn.addEventListener('click', closeProfileForm);
+    profileSaveBtn.addEventListener('click', saveProfile);
+    profileAutoFill.addEventListener('click', autoFillProcessName);
+
+    // --- Show debug checkbox ---
+    showDebugCheckbox.addEventListener('change', async () => {
+        try {
+            await invoke('toggle_debug', { show: showDebugCheckbox.checked });
+        } catch (e) {
+            console.error('Failed to toggle debug:', e);
+            showMessage('Failed to toggle debug: ' + e, true);
+        }
+    });
+
+    // --- Load profiles ---
+    try {
+        profiles = await invoke('list_profiles');
+        renderProfiles();
+    } catch (e) {
+        console.error('Failed to load profiles:', e);
+    }
+
+    // --- Load active game info ---
+    try {
+        activeGameInfo = await invoke('get_active_game');
+        updateBanner();
+    } catch (e) {
+        console.error('Failed to get active game:', e);
+    }
+
+    // --- Load show_debug state ---
+    try {
+        const settings = await invoke('get_settings');
+        showDebugCheckbox.checked = settings.show_debug === true;
+    } catch (e) {
+        console.error('Failed to load settings for show_debug:', e);
+    }
+
+    // --- Listen to events ---
+    if (listen) {
+        listen('active-game-changed', (event) => {
+            activeGameInfo = event.payload;
+            updateBanner();
+        }).catch(e => console.error('Failed to listen active-game-changed:', e));
+
+        listen('settings-changed', (event) => {
+            const s = event.payload;
+            if (typeof s.show_debug === 'boolean') {
+                showDebugCheckbox.checked = s.show_debug;
+            }
+        }).catch(e => console.error('Failed to listen settings-changed:', e));
+    }
+});

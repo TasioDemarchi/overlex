@@ -143,6 +143,62 @@ try {
     console.warn('Tauri event listen not available:', err);
 }
 
+// === Debug line indicator ===
+let __currentEngine = '—';
+
+(async function initDebugLine() {
+    try {
+        const settings = await window.__TAURI__?.core?.invoke('get_settings');
+        if (settings) {
+            __currentEngine = settings.engine || '—';
+            if (settings.show_debug) {
+                const debugEl = document.getElementById('debug-line');
+                if (debugEl) debugEl.classList.add('visible');
+            }
+        }
+    } catch (e) {
+        console.warn('Failed to load debug settings:', e);
+    }
+
+    // Listen for active game changes
+    try {
+        const listen = window.__TAURI__?.event?.listen;
+        if (typeof listen === 'function') {
+            // Active game changed
+            listen('active-game-changed', (event) => {
+                const info = event.payload;
+                const debugEl = document.getElementById('debug-line');
+                if (!debugEl) return;
+                if (info.process_name) {
+                    let text = info.process_name;
+                    if (info.matched_profile) text += ` [${info.matched_profile}]`;
+                    text += ` · ${__currentEngine}`;
+                    if (info.fullscreen_exclusive) text += ' ⚠ Fullscreen';
+                    debugEl.textContent = text;
+                } else {
+                    debugEl.textContent = `— · ${__currentEngine}`;
+                }
+            });
+
+            // Settings changed (show_debug toggled)
+            listen('settings-changed', (event) => {
+                const payload = event.payload;
+                if (payload && typeof payload.show_debug === 'boolean') {
+                    const debugEl = document.getElementById('debug-line');
+                    if (!debugEl) return;
+                    if (payload.show_debug) {
+                        debugEl.classList.add('visible');
+                    } else {
+                        debugEl.classList.remove('visible');
+                    }
+                }
+            });
+        }
+    } catch (e) {
+        console.warn('Failed to set up debug listeners:', e);
+    }
+})();
+
 // Dismiss button
 dismissBtn.addEventListener('click', async () => {
     try { await window.__TAURI__?.core?.invoke('dismiss_result'); } catch (e) { console.error('Failed to dismiss:', e); }

@@ -5,7 +5,7 @@ use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Manager, Position};
 
-use crate::{capture, history, history::HistoryEntry, ocr, ResultPayload, SettingsState, ScreenshotState, TranslationState, FocusRestoreState, HistoryState, settings, translation::TranslationEngine};
+use crate::{capture, history, history::HistoryEntry, ocr, ResultPayload, SettingsState, ActiveGameState, ScreenshotState, TranslationState, FocusRestoreState, HistoryState, settings, translation::TranslationEngine};
 
 /// Language swap result payload
 #[derive(serde::Serialize, Clone)]
@@ -101,6 +101,22 @@ fn emit_result(app_handle: &tauri::AppHandle, payload: &ResultPayload, show_wind
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct GameProfile {
+    pub display_name: String,
+    pub process_names: Vec<String>,
+    #[serde(default)]
+    pub source_lang: Option<String>,
+    #[serde(default)]
+    pub target_lang: Option<String>,
+    #[serde(default)]
+    pub engine: Option<String>,
+    #[serde(default)]
+    pub ocr_preprocessing: Option<bool>,
+    #[serde(default)]
+    pub ocr_binarize: Option<bool>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Settings {
     pub ocr_hotkey: String,
     pub write_hotkey: String,
@@ -117,6 +133,10 @@ pub struct Settings {
     pub ocr_binarize: bool,
     #[serde(default = "default_true")]
     pub history_enabled: bool,
+    #[serde(default)]
+    pub profiles: Vec<GameProfile>,
+    #[serde(default)]
+    pub show_debug: bool,
 }
 
 fn default_true() -> bool { true }
@@ -136,8 +156,17 @@ impl Default for Settings {
             ocr_preprocessing: true,
             ocr_binarize: false,
             history_enabled: true,
+            profiles: Vec::new(),
+            show_debug: false,
         }
     }
+}
+
+#[derive(Serialize, Clone, Default)]
+pub struct ActiveGameInfo {
+    pub process_name: Option<String>,
+    pub fullscreen_exclusive: bool,
+    pub matched_profile: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -200,6 +229,7 @@ pub async fn get_settings(settings_state: tauri::State<'_, SettingsState>) -> Re
 pub async fn save_settings(
     settings: Settings,
     settings_state: tauri::State<'_, SettingsState>,
+    active_game_state: tauri::State<'_, ActiveGameState>,
     hotkey_state: tauri::State<'_, std::sync::Mutex<crate::hotkeys::HotkeyState>>,
     translation_state: tauri::State<'_, TranslationState>,
     app_handle: tauri::AppHandle,
@@ -207,27 +237,62 @@ pub async fn save_settings(
     // Validate hotkeys
     settings::validate_hotkeys(&settings)?;
 
-    // Check if engine changed — swap the translation engine at runtime if so
-    let old_settings = settings_state.settings.lock().unwrap().clone();
-    let engine_changed = old_settings.engine != settings.engine
-        || (settings.engine == "libretranslate" && old_settings.libre_translate_url != settings.libre_translate_url);
-
-    if engine_changed {
-        let new_engine: Arc<dyn TranslationEngine> = Arc::from(crate::translation::create_engine(&settings));
-        let mut engine_guard = translation_state.engine.write().unwrap();
-        *engine_guard = new_engine;
-        eprintln!("[SETTINGS] Translation engine swapped to: {}", settings.engine);
-    }
-
-    // Save to disk
+    // Save to disk (persist the raw settings from the frontend)
     settings::save_settings_to_disk(&settings)?;
 
-    // Update in-memory state
-    *settings_state.settings.lock().unwrap() = settings.clone();
+    // Determine effective settings: apply profile overrides if a profile is active.
+    // Lock order: settings(1) → saved_defaults(2) → active_game.info(3) → engine(4).
+    //
+    // Step 1: Read current engine from active settings (lock 1).
+    let old_engine = settings_state.settings.lock().unwrap().engine.clone();
 
-    // Re-register hotkeys
+    // Step 2: Update saved_defaults (lock 2), check active profile (lock 3),
+    //          and compute the effective settings.
+    let effective_settings: Settings = {
+        let mut saved = settings_state.saved_defaults.lock().unwrap();
+        *saved = settings.clone();
+
+        let active_profile_name = {
+            let info = active_game_state.info.lock().unwrap();
+            info.matched_profile.clone()
+        };
+
+        if let Some(ref profile_name) = active_profile_name {
+            if let Some(profile) = saved.profiles.iter().find(|p| &p.display_name == profile_name) {
+                let overridden = apply_profile_overrides(&saved, profile);
+                eprintln!("[SETTINGS] Re-applied profile '{}' overrides after save", profile_name);
+                overridden
+            } else {
+                saved.clone()
+            }
+        } else {
+            saved.clone()
+        }
+    };
+
+    // Step 3: Update active settings (lock 1).
+    *settings_state.settings.lock().unwrap() = effective_settings.clone();
+
+    // Step 4: Swap engine if needed (lock 4).
+    let engine_changed = old_engine != effective_settings.engine;
+    if engine_changed {
+        let new_engine: Arc<dyn TranslationEngine> = Arc::from(crate::translation::create_engine(&effective_settings));
+        let mut engine_guard = translation_state.engine.write().unwrap();
+        *engine_guard = new_engine;
+        eprintln!("[SETTINGS] Translation engine swapped to: {}", effective_settings.engine);
+    }
+
+    // Re-register hotkeys with the effective settings
     let mut hk = hotkey_state.lock().map_err(|e| e.to_string())?;
-    crate::hotkeys::register_hotkeys(&mut hk, &settings.ocr_hotkey, &settings.write_hotkey, app_handle)?;
+    crate::hotkeys::register_hotkeys(&mut hk, &effective_settings.ocr_hotkey, &effective_settings.write_hotkey, app_handle.clone())?;
+
+    // Emit settings-changed so overlays re-check show_debug
+    let _ = app_handle.emit("settings-changed", serde_json::json!({
+        "show_debug": effective_settings.show_debug,
+    }));
+
+    eprintln!("[SETTINGS] Saved. effective engine={}, show_debug={}",
+        effective_settings.engine, effective_settings.show_debug);
 
     Ok(())
 }
@@ -687,5 +752,377 @@ pub async fn delete_history_entry(
     tokio::task::spawn_blocking(move || {
         history::HistoryDb::delete(id)
     }).await.map_err(|e| format!("Task join error: {}", e))?
+}
+
+// ============================================================================
+// Profile Commands
+// ============================================================================
+
+/// Helper: apply a GameProfile's override fields on top of base Settings.
+/// Only `Some` fields override; `None` fields leave the base value intact.
+pub(crate) fn apply_profile_overrides(base: &Settings, profile: &GameProfile) -> Settings {
+    let mut s = base.clone();
+    if let Some(v) = &profile.source_lang {
+        s.source_lang = v.clone();
+    }
+    if let Some(v) = &profile.target_lang {
+        s.target_lang = v.clone();
+    }
+    if let Some(v) = &profile.engine {
+        s.engine = v.clone();
+    }
+    if let Some(v) = profile.ocr_preprocessing {
+        s.ocr_preprocessing = v;
+    }
+    if let Some(v) = profile.ocr_binarize {
+        s.ocr_binarize = v;
+    }
+    s
+}
+
+/// Add a game profile, persist to disk, and apply overrides if it matches
+/// the currently-active foreground process.
+#[tauri::command]
+pub async fn add_profile(
+    profile: GameProfile,
+    settings_state: tauri::State<'_, SettingsState>,
+    active_game: tauri::State<'_, ActiveGameState>,
+    app_handle: tauri::AppHandle,
+) -> Result<(), String> {
+    // Check whether the new profile matches the current foreground process
+    let matches_active = {
+        let info = active_game.info.lock().unwrap();
+        info.process_name.as_ref().map_or(false, |pn| {
+            profile.process_names.iter().any(|n| n.eq_ignore_ascii_case(pn))
+        })
+    };
+
+    // 1. Push to saved_defaults and persist
+    {
+        let mut saved = settings_state.saved_defaults.lock().unwrap().clone();
+        saved.profiles.push(profile.clone());
+        settings::save_settings_to_disk(&saved)?;
+        *settings_state.saved_defaults.lock().unwrap() = saved;
+    }
+
+    // 2. Push to active settings tier; apply overrides if matching
+    let overridden_settings = {
+        let mut settings = settings_state.settings.lock().unwrap().clone();
+        settings.profiles.push(profile.clone());
+
+        if matches_active {
+            let saved = settings_state.saved_defaults.lock().unwrap().clone();
+            let overridden = apply_profile_overrides(&saved, &profile);
+            settings.source_lang = overridden.source_lang;
+            settings.target_lang = overridden.target_lang;
+            settings.engine = overridden.engine;
+            settings.ocr_preprocessing = overridden.ocr_preprocessing;
+            settings.ocr_binarize = overridden.ocr_binarize;
+        }
+
+        let clone_for_event = settings.clone();
+        *settings_state.settings.lock().unwrap() = settings;
+        clone_for_event
+    };
+
+    // 3. Update active-game matched_profile if applicable
+    if matches_active {
+        {
+            let mut info = active_game.info.lock().unwrap();
+            info.matched_profile = Some(profile.display_name.clone());
+        }
+        let info = active_game.info.lock().unwrap().clone();
+        let _ = app_handle.emit("active-game-changed", &info);
+    }
+
+    let _ = app_handle.emit("settings-changed", &overridden_settings);
+    eprintln!("[PROFILE] Added profile '{}' (matches_active={})", profile.display_name, matches_active);
+    Ok(())
+}
+
+/// Remove a game profile by display_name, persist, and revert to defaults
+/// if the removed profile was the active one.
+#[tauri::command]
+pub async fn remove_profile(
+    display_name: String,
+    settings_state: tauri::State<'_, SettingsState>,
+    active_game: tauri::State<'_, ActiveGameState>,
+    app_handle: tauri::AppHandle,
+) -> Result<(), String> {
+    // Check if the profile being removed is the currently matched one
+    let was_active = {
+        let info = active_game.info.lock().unwrap();
+        info.matched_profile.as_deref() == Some(&display_name)
+    };
+
+    // 1. Remove from saved_defaults and persist
+    {
+        let mut saved = settings_state.saved_defaults.lock().unwrap().clone();
+        let len_before = saved.profiles.len();
+        saved.profiles.retain(|p| p.display_name != display_name);
+        if saved.profiles.len() == len_before {
+            return Err(format!("Profile '{}' not found", display_name));
+        }
+        settings::save_settings_to_disk(&saved)?;
+        *settings_state.saved_defaults.lock().unwrap() = saved;
+    }
+
+    // 2. Remove from active settings; revert to saved_defaults if was active
+    let updated_settings = {
+        let mut settings = settings_state.settings.lock().unwrap().clone();
+        settings.profiles.retain(|p| p.display_name != display_name);
+
+        if was_active {
+            let saved = settings_state.saved_defaults.lock().unwrap().clone();
+            settings.source_lang = saved.source_lang;
+            settings.target_lang = saved.target_lang;
+            settings.engine = saved.engine;
+            settings.ocr_preprocessing = saved.ocr_preprocessing;
+            settings.ocr_binarize = saved.ocr_binarize;
+        }
+
+        let clone_for_event = settings.clone();
+        *settings_state.settings.lock().unwrap() = settings;
+        clone_for_event
+    };
+
+    // 3. Clear matched_profile if this was the active profile
+    if was_active {
+        {
+            let mut info = active_game.info.lock().unwrap();
+            info.matched_profile = None;
+        }
+        let info = active_game.info.lock().unwrap().clone();
+        let _ = app_handle.emit("active-game-changed", &info);
+    }
+
+    let _ = app_handle.emit("settings-changed", &updated_settings);
+    eprintln!("[PROFILE] Removed profile '{}' (was_active={})", display_name, was_active);
+    Ok(())
+}
+
+/// Update an existing game profile by display_name, persist, and re-apply
+/// overrides if it is the currently active profile.
+#[tauri::command]
+pub async fn update_profile(
+    profile: GameProfile,
+    settings_state: tauri::State<'_, SettingsState>,
+    active_game: tauri::State<'_, ActiveGameState>,
+    app_handle: tauri::AppHandle,
+) -> Result<(), String> {
+    let display_name = profile.display_name.clone();
+
+    // Check if the profile being updated is the currently matched one
+    let is_active = {
+        let info = active_game.info.lock().unwrap();
+        info.matched_profile.as_deref() == Some(&display_name)
+    };
+
+    // 1. Replace in saved_defaults and persist
+    {
+        let mut saved = settings_state.saved_defaults.lock().unwrap().clone();
+        let pos = saved.profiles.iter().position(|p| p.display_name == display_name)
+            .ok_or_else(|| format!("Profile '{}' not found", display_name))?;
+        saved.profiles[pos] = profile.clone();
+        settings::save_settings_to_disk(&saved)?;
+        *settings_state.saved_defaults.lock().unwrap() = saved;
+    }
+
+    // 2. Replace in active settings; re-apply overrides if active
+    let updated_settings = {
+        let mut settings = settings_state.settings.lock().unwrap().clone();
+        if let Some(pos) = settings.profiles.iter().position(|p| p.display_name == display_name) {
+            settings.profiles[pos] = profile.clone();
+        }
+
+        if is_active {
+            let saved = settings_state.saved_defaults.lock().unwrap().clone();
+            let overridden = apply_profile_overrides(&saved, &profile);
+            settings.source_lang = overridden.source_lang;
+            settings.target_lang = overridden.target_lang;
+            settings.engine = overridden.engine;
+            settings.ocr_preprocessing = overridden.ocr_preprocessing;
+            settings.ocr_binarize = overridden.ocr_binarize;
+        }
+
+        let clone_for_event = settings.clone();
+        *settings_state.settings.lock().unwrap() = settings;
+        clone_for_event
+    };
+
+    // 3. Emit events
+    if is_active {
+        let info = active_game.info.lock().unwrap().clone();
+        let _ = app_handle.emit("active-game-changed", &info);
+    }
+    let _ = app_handle.emit("settings-changed", &updated_settings);
+    eprintln!("[PROFILE] Updated profile '{}' (is_active={})", display_name, is_active);
+    Ok(())
+}
+
+/// Return all configured game profiles.
+#[tauri::command]
+pub async fn list_profiles(
+    settings_state: tauri::State<'_, SettingsState>,
+) -> Result<Vec<GameProfile>, String> {
+    let profiles = settings_state.settings.lock().unwrap().profiles.clone();
+    Ok(profiles)
+}
+
+/// Return current active game information (foreground process + matched profile).
+#[tauri::command]
+pub async fn get_active_game(
+    active_game: tauri::State<'_, ActiveGameState>,
+) -> Result<ActiveGameInfo, String> {
+    let info = active_game.info.lock().unwrap().clone();
+    Ok(info)
+}
+
+/// Toggle the debug indicator on overlays.
+#[tauri::command]
+pub async fn toggle_debug(
+    show: bool,
+    settings_state: tauri::State<'_, SettingsState>,
+    app_handle: tauri::AppHandle,
+) -> Result<(), String> {
+    // 1. Update saved_defaults and persist
+    {
+        let mut saved = settings_state.saved_defaults.lock().unwrap().clone();
+        saved.show_debug = show;
+        settings::save_settings_to_disk(&saved)?;
+        *settings_state.saved_defaults.lock().unwrap() = saved;
+    }
+
+    // 2. Update active settings
+    let updated_settings = {
+        let mut settings = settings_state.settings.lock().unwrap().clone();
+        settings.show_debug = show;
+        let clone_for_event = settings.clone();
+        *settings_state.settings.lock().unwrap() = settings;
+        clone_for_event
+    };
+
+    // 3. Emit event so overlays update
+    let _ = app_handle.emit("settings-changed", &updated_settings);
+    eprintln!("[DEBUG] show_debug set to {}", show);
+    Ok(())
+}
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_profile_match_case_insensitive() {
+        let profile = GameProfile {
+            display_name: "Path of Exile".to_string(),
+            process_names: vec![
+                "poe2.exe".to_string(),
+                "PathOfExile_x64.exe".to_string(),
+            ],
+            source_lang: None,
+            target_lang: Some("es".to_string()),
+            engine: None,
+            ocr_preprocessing: None,
+            ocr_binarize: None,
+        };
+
+        // Case-insensitive matching should work for both uppercase and mixed-case queries
+        assert!(profile
+            .process_names
+            .iter()
+            .any(|p| p.to_lowercase() == "POE2.EXE".to_lowercase()));
+        assert!(profile
+            .process_names
+            .iter()
+            .any(|p| p.to_lowercase() == "pathofexile_x64.exe".to_lowercase()));
+        assert!(!profile
+            .process_names
+            .iter()
+            .any(|p| p.to_lowercase() == "notepad.exe".to_lowercase()));
+    }
+
+    #[test]
+    fn test_profile_match_multiple_processes() {
+        let profile = GameProfile {
+            display_name: "POE".to_string(),
+            process_names: vec![
+                "PathOfExileSteam.exe".to_string(),
+                "PathOfExile_x64.exe".to_string(),
+                "PathOfExile.exe".to_string(),
+            ],
+            source_lang: None,
+            target_lang: None,
+            engine: None,
+            ocr_preprocessing: None,
+            ocr_binarize: None,
+        };
+
+        // All variants should match case-insensitively
+        assert!(profile
+            .process_names
+            .iter()
+            .any(|p| p.eq_ignore_ascii_case("PathOfExileSteam.exe")));
+        assert!(profile
+            .process_names
+            .iter()
+            .any(|p| p.eq_ignore_ascii_case("PathOfExile.exe")));
+    }
+
+    #[test]
+    fn test_override_application() {
+        let base_settings = Settings {
+            source_lang: "en".to_string(),
+            target_lang: "es".to_string(),
+            engine: "google_gtx".to_string(),
+            ocr_preprocessing: true,
+            ocr_binarize: false,
+            ..Default::default()
+        };
+
+        let profile = GameProfile {
+            display_name: "POE".to_string(),
+            process_names: vec!["poe2.exe".to_string()],
+            source_lang: None,               // Don't override
+            target_lang: Some("ja".to_string()), // Override
+            engine: Some("gemini".to_string()),   // Override
+            ocr_preprocessing: None,          // Don't override
+            ocr_binarize: Some(true),         // Override
+        };
+
+        let result = apply_profile_overrides(&base_settings, &profile);
+
+        assert_eq!(result.source_lang, "en");       // Not overridden
+        assert_eq!(result.target_lang, "ja");        // Overridden
+        assert_eq!(result.engine, "gemini");          // Overridden
+        assert_eq!(result.ocr_preprocessing, true);   // Not overridden
+        assert_eq!(result.ocr_binarize, true);        // Overridden
+    }
+
+    #[test]
+    fn test_profiles_serde_default() {
+        let json = r#"{"source_lang":"en","target_lang":"es","engine":"google_gtx","ocr_hotkey":"ctrl+shift+t","write_hotkey":"ctrl+shift+w","ocr_preprocessing":true,"ocr_binarize":false}"#;
+        let settings: Settings = serde_json::from_str(json).unwrap();
+
+        // New fields should use serde defaults when absent from JSON
+        assert!(settings.profiles.is_empty());
+        assert!(!settings.show_debug);
+    }
+
+    #[test]
+    fn test_settings_backward_compat() {
+        // Old settings.json without profiles/show_debug should deserialize with defaults
+        let json = r#"{"source_lang":"en","target_lang":"es","engine":"google_gtx","ocr_hotkey":"ctrl+shift+t","write_hotkey":"ctrl+shift+w","ocr_preprocessing":true,"ocr_binarize":false}"#;
+        let settings: Settings = serde_json::from_str(json).unwrap();
+
+        assert!(settings.profiles.is_empty());
+        assert!(!settings.show_debug);
+        assert_eq!(settings.source_lang, "en");
+        assert_eq!(settings.target_lang, "es");
+    }
 }
 

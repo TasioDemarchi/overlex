@@ -9,6 +9,7 @@ const langDisplay = document.getElementById('lang-display');
 const swapBtn = document.getElementById('swap-btn');
 
 let hasMessages = false;
+let __currentEngine = '—';
 
 function removeEmptyState() {
     if (!hasMessages) {
@@ -40,6 +41,13 @@ input?.focus();
         const sourceUpper = (settings.source_lang === 'auto' ? 'AUTO' : settings.source_lang.toUpperCase());
         const targetUpper = settings.target_lang.toUpperCase();
         langDisplay.textContent = `${sourceUpper} → ${targetUpper}`;
+
+        // Debug line: track engine and show if enabled
+        __currentEngine = settings.engine || '—';
+        if (settings.show_debug) {
+            const debugEl = document.getElementById('debug-line');
+            if (debugEl) debugEl.classList.add('visible');
+        }
     } catch (e) {
         console.error('Failed to load settings:', e);
     }
@@ -71,6 +79,36 @@ try {
             const sourceUpper = (source_lang === 'auto' ? 'AUTO' : source_lang.toUpperCase());
             const targetUpper = target_lang.toUpperCase();
             langDisplay.textContent = `${sourceUpper} → ${targetUpper}`;
+        });
+
+        // Debug: active game changed
+        listen('active-game-changed', (event) => {
+            const info = event.payload;
+            const debugEl = document.getElementById('debug-line');
+            if (!debugEl) return;
+            if (info.process_name) {
+                let text = info.process_name;
+                if (info.matched_profile) text += ` [${info.matched_profile}]`;
+                text += ` · ${__currentEngine}`;
+                if (info.fullscreen_exclusive) text += ' ⚠ Fullscreen';
+                debugEl.textContent = text;
+            } else {
+                debugEl.textContent = `— · ${__currentEngine}`;
+            }
+        });
+
+        // Debug: settings changed (show_debug toggled)
+        listen('settings-changed', (event) => {
+            const payload = event.payload;
+            if (payload && typeof payload.show_debug === 'boolean') {
+                const debugEl = document.getElementById('debug-line');
+                if (!debugEl) return;
+                if (payload.show_debug) {
+                    debugEl.classList.add('visible');
+                } else {
+                    debugEl.classList.remove('visible');
+                }
+            }
         });
     }
 } catch (err) {

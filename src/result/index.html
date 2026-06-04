@@ -170,6 +170,24 @@
             transition: width 50ms linear;
             display: none;
         }
+
+        /* Debug indicator line */
+        #debug-line {
+            display: none;
+            position: absolute;
+            bottom: 0; left: 0; right: 0;
+            padding: 2px 8px;
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 10px;
+            color: rgba(255,255,255,0.5);
+            background: rgba(0,0,0,0.3);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            z-index: 10;
+            pointer-events: none;
+        }
+        #debug-line.visible { display: block; }
     </style>
 </head>
 <body>
@@ -191,6 +209,7 @@
             <button id="original-toggle">▶ Original</button>
             <div id="original"></div>
         </div>
+        <div id="debug-line"></div>
     </div>
     <script src="result.js"></script>
 </body>

@@ -181,10 +181,78 @@
         .history-entry .delete-btn:hover {
             text-decoration: underline;
         }
+
+        /* Profile cards */
+        .profile-card {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 10px 12px;
+            margin-bottom: 8px;
+        }
+        .profile-card:last-child { margin-bottom: 0; }
+        .profile-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 6px;
+        }
+        .profile-card-header strong {
+            font-size: 0.9rem;
+        }
+        .profile-card-actions {
+            display: flex;
+            gap: 6px;
+        }
+        .profile-card-processes {
+            margin-bottom: 4px;
+        }
+        .profile-card-badges {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+        .process-tag {
+            background: var(--bg-secondary);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            color: var(--accent);
+        }
+        .badge {
+            padding: 2px 7px;
+            border-radius: 4px;
+            font-size: 0.72rem;
+            font-weight: 500;
+        }
+        .badge-lang { background: rgba(81,207,102,0.15); color: var(--success); }
+        .badge-engine { background: rgba(78,154,241,0.15); color: var(--accent); }
+        .badge-ocr { background: rgba(190,147,250,0.15); color: #be93fa; }
+
+        /* Profile form */
+        #profile-form h3 {
+            color: var(--text-primary);
+            font-size: 0.95rem;
+            margin-bottom: 14px;
+        }
+        #profile-form .override-label {
+            display: block;
+            margin: 14px 0 4px;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            font-style: italic;
+        }
     </style>
 </head>
 <body>
     <h1>OverLex Settings</h1>
+
+    <!-- Active Profile Banner -->
+    <div id="active-profile-banner" style="display:none; background: rgba(78, 154, 241, 0.15); border: 1px solid #4e9af1; border-radius: 6px; padding: 10px 14px; margin-bottom: 16px;">
+        <strong style="color: #4e9af1;">Active Profile:</strong>
+        <span id="active-profile-name"></span>
+        <small style="display: block; margin-top: 4px; color: #999;" id="active-profile-details"></small>
+    </div>
 
     <!-- Hotkeys Section -->
     <h2>Hotkeys</h2>
@@ -295,6 +363,96 @@
             <small style="color: var(--text-secondary); display: block; margin-top: 4px;">
                 Converts to black & white. Best for very dark/light backgrounds
             </small>
+        </div>
+    </div>
+
+    <!-- Game Profiles Section -->
+    <h2>Game Profiles</h2>
+    <div class="section">
+        <div class="form-group">
+            <label class="checkbox-label">
+                <input type="checkbox" id="show-debug" />
+                Show debug info on overlays
+            </label>
+        </div>
+        <div id="profile-list">
+            <!-- Profile cards rendered here -->
+        </div>
+        <button id="add-profile-btn" class="small-btn" style="margin-top: 8px;">+ Add Profile</button>
+
+        <!-- Profile form (hidden by default, replaces list when editing) -->
+        <div id="profile-form" style="display:none;">
+            <h3 id="profile-form-title">Add Profile</h3>
+            <div class="form-group">
+                <label for="profile-display-name">Display Name *</label>
+                <input type="text" id="profile-display-name" placeholder="e.g. Path of Exile 2" />
+            </div>
+            <div class="form-group">
+                <label for="profile-process-names">Process Names * (comma-separated)</label>
+                <div style="display: flex; gap: 8px;">
+                    <input type="text" id="profile-process-names" placeholder="e.g. poe2.exe, PathOfExile2.exe" style="flex: 1;" />
+                    <button id="profile-auto-fill" class="small-btn" title="Fill from current foreground game">Auto-fill</button>
+                </div>
+            </div>
+            <span class="override-label">Optional Overrides — Leave empty to use defaults</span>
+            <div class="form-group">
+                <label for="profile-source-lang">Source Language</label>
+                <select id="profile-source-lang">
+                    <option value="">Use default</option>
+                    <option value="auto">Auto-detect</option>
+                    <option value="en">English</option>
+                    <option value="es">Spanish</option>
+                    <option value="fr">French</option>
+                    <option value="de">German</option>
+                    <option value="pt">Portuguese</option>
+                    <option value="it">Italian</option>
+                    <option value="ja">Japanese</option>
+                    <option value="ko">Korean</option>
+                    <option value="zh">Chinese</option>
+                    <option value="ru">Russian</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="profile-target-lang">Target Language</label>
+                <select id="profile-target-lang">
+                    <option value="">Use default</option>
+                    <option value="en">English</option>
+                    <option value="es">Spanish</option>
+                    <option value="fr">French</option>
+                    <option value="de">German</option>
+                    <option value="pt">Portuguese</option>
+                    <option value="it">Italian</option>
+                    <option value="ja">Japanese</option>
+                    <option value="ko">Korean</option>
+                    <option value="zh">Chinese</option>
+                    <option value="ru">Russian</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="profile-engine">Translation Engine</label>
+                <select id="profile-engine">
+                    <option value="">Use default</option>
+                    <option value="google_gtx">Google GTX (Free)</option>
+                    <option value="mymemory">MyMemory (Free)</option>
+                    <option value="libretranslate">LibreTranslate (Free)</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" id="profile-ocr-preprocessing" />
+                    Enable image pre-processing
+                </label>
+            </div>
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" id="profile-ocr-binarize" />
+                    Enable binarization (Otsu threshold)
+                </label>
+            </div>
+            <div style="display: flex; gap: 8px; margin-top: 16px;">
+                <button id="profile-save-btn" class="small-btn" style="background: var(--accent); border-color: var(--accent);">Save</button>
+                <button id="profile-cancel-btn" class="small-btn">Cancel</button>
+            </div>
         </div>
     </div>
 

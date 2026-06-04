@@ -3,6 +3,8 @@
 
 pub mod capture;
 pub mod commands;
+#[cfg(windows)]
+pub mod game_detection;
 pub mod history;
 pub mod hotkeys;
 pub mod ocr;
@@ -10,7 +12,7 @@ pub mod settings;
 pub mod translation;
 pub mod tray;
 
-pub use commands::Settings;
+pub use commands::{Settings, GameProfile, ActiveGameInfo};
 
 use std::sync::{Arc, RwLock, Mutex};
 use tauri::{
@@ -40,7 +42,13 @@ pub struct ScreenshotState {
 
 /// State to hold current settings
 pub struct SettingsState {
-    pub settings: Arc<Mutex<Settings>>,
+    pub settings: Arc<Mutex<Settings>>,           // active/effective
+    pub saved_defaults: Arc<Mutex<Settings>>,     // persisted defaults
+}
+
+/// State for active game detection info
+pub struct ActiveGameState {
+    pub info: Arc<Mutex<ActiveGameInfo>>,
 }
 
 /// State to hold the foreground window handle for focus restore after write mode
@@ -136,9 +144,16 @@ pub fn run() {
 
             // Initialize settings state
             let settings_state = SettingsState {
-                settings: Arc::new(Mutex::new(settings)),
+                settings: Arc::new(Mutex::new(settings.clone())),
+                saved_defaults: Arc::new(Mutex::new(settings)),
             };
             app.manage(settings_state);
+
+            // Initialize active game state
+            let active_game_state = ActiveGameState {
+                info: Arc::new(Mutex::new(ActiveGameInfo::default())),
+            };
+            app.manage(active_game_state);
 
             // Initialize history DB at %APPDATA%/overlex/history.db
             let appdata = std::env::var("APPDATA").unwrap_or_else(|_| ".".to_string());
@@ -157,6 +172,108 @@ pub fn run() {
                 hwnd: Arc::new(Mutex::new(None)),
             };
             app.manage(focus_state);
+
+            // Initialize game detection background thread
+            #[cfg(windows)]
+            {
+                let shutdown = Arc::new(std::sync::atomic::AtomicBool::new(false));
+                let settings_arc = settings_state.settings.clone();
+                let handle = game_detection::spawn_detector(
+                    app.handle().clone(),
+                    shutdown.clone(),
+                    settings_arc,
+                );
+                app.manage(game_detection::GameDetectorState {
+                    shutdown,
+                    handle: Mutex::new(Some(handle)),
+                });
+
+                // Auto-switch handler: listen for game-changed events and apply profile overrides.
+                let app_handle_game = app.handle().clone();
+                app.listen("game-changed", move |event| {
+                    use crate::game_detection::GameChangedPayload;
+
+                    let payload: GameChangedPayload = match serde_json::from_str(event.payload()) {
+                        Ok(p) => p,
+                        Err(e) => {
+                            eprintln!("[AUTO_SWITCH] Failed to parse game-changed payload: {}", e);
+                            return;
+                        }
+                    };
+
+                    eprintln!(
+                        "[AUTO_SWITCH] game-changed: process={:?}, profile={:?}, fullscreen={}",
+                        payload.process_name, payload.matched_profile, payload.fullscreen_exclusive
+                    );
+
+                    let Some(settings_state) = app_handle_game.try_state::<SettingsState>() else {
+                        eprintln!("[AUTO_SWITCH] SettingsState not available");
+                        return;
+                    };
+                    let Some(active_game_state) = app_handle_game.try_state::<ActiveGameState>() else {
+                        eprintln!("[AUTO_SWITCH] ActiveGameState not available");
+                        return;
+                    };
+                    let Some(translation_state) = app_handle_game.try_state::<TranslationState>() else {
+                        eprintln!("[AUTO_SWITCH] TranslationState not available");
+                        return;
+                    };
+
+                    // Lock order: settings(1) → saved_defaults(2) → active_game.info(3) → engine(4).
+
+                    // Step 1: Read current engine from active settings (lock 1).
+                    let current_engine = settings_state.settings.lock().unwrap().engine.clone();
+
+                    // Step 2: Determine effective settings from saved_defaults (lock 2)
+                    //          and profile match.
+                    let effective_settings: Settings = {
+                        let saved = settings_state.saved_defaults.lock().unwrap();
+
+                        if let Some(ref profile_name) = payload.matched_profile {
+                            if let Some(profile) = saved.profiles.iter().find(|p| &p.display_name == profile_name) {
+                                let overridden = crate::commands::apply_profile_overrides(&saved, profile);
+                                eprintln!("[AUTO_SWITCH] Applied profile '{}' overrides", profile_name);
+                                overridden
+                            } else {
+                                eprintln!("[AUTO_SWITCH] Profile '{}' not found in saved_defaults, using defaults", profile_name);
+                                saved.clone()
+                            }
+                        } else {
+                            eprintln!("[AUTO_SWITCH] No profile match, reverting to saved defaults");
+                            saved.clone()
+                        }
+                    };
+
+                    // Step 3: Update active settings (lock 1).
+                    *settings_state.settings.lock().unwrap() = effective_settings.clone();
+
+                    // Step 4: Swap engine if needed (lock 4).
+                    if current_engine != effective_settings.engine {
+                        let new_engine: Arc<dyn TranslationEngine> =
+                            Arc::from(crate::translation::create_engine(&effective_settings));
+                        let mut engine_guard = translation_state.engine.write().unwrap();
+                        *engine_guard = new_engine;
+                        eprintln!("[AUTO_SWITCH] Engine swapped: {} -> {}",
+                            current_engine, effective_settings.engine);
+                    }
+
+                    // Step 5: Update active game info (lock 3).
+                    {
+                        let mut info = active_game_state.info.lock().unwrap();
+                        info.process_name = payload.process_name;
+                        info.fullscreen_exclusive = payload.fullscreen_exclusive;
+                        info.matched_profile = payload.matched_profile.clone();
+                    }
+
+                    // Step 6: Emit active-game-changed to all windows.
+                    let info = active_game_state.info.lock().unwrap().clone();
+                    let _ = app_handle_game.emit("active-game-changed", serde_json::json!({
+                        "process_name": info.process_name,
+                        "fullscreen_exclusive": info.fullscreen_exclusive,
+                        "matched_profile": info.matched_profile,
+                    }));
+                });
+            }
 
             // Register global hotkeys with loaded settings
             let mut hotkey_state = hotkeys::HotkeyState::new();
@@ -432,6 +549,12 @@ pub fn run() {
             commands::export_history,
             commands::clear_history,
             commands::delete_history_entry,
+            commands::add_profile,
+            commands::remove_profile,
+            commands::update_profile,
+            commands::list_profiles,
+            commands::get_active_game,
+            commands::toggle_debug,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
@@ -441,6 +564,17 @@ pub fn run() {
                 }
             }
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            if let tauri::RunEvent::Exit = event {
+                #[cfg(windows)]
+                {
+                    if let Some(state) = app_handle.try_state::<crate::game_detection::GameDetectorState>() {
+                        state.shutdown.store(true, std::sync::atomic::Ordering::Release);
+                        eprintln!("[GAME_DETECT] Signalled shutdown via RunEvent::Exit");
+                    }
+                }
+            }
+        });
 }
