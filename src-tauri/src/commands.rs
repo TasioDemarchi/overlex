@@ -2,7 +2,7 @@
 
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tauri::{Emitter, Manager, Position};
 
 use crate::{
@@ -13,6 +13,61 @@ use crate::{
     ActiveGameState, FocusRestoreState, HistoryState, ResultPayload, ScreenshotState,
     SettingsState, TranslationState,
 };
+
+// ============================================================
+// In-memory log buffer for debugging
+// ============================================================
+
+const MAX_LOG_ENTRIES: usize = 200;
+
+use std::time::SystemTime;
+
+/// A single log entry
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct LogEntry {
+    pub timestamp: String,
+    pub level: String,
+    pub message: String,
+}
+
+/// Global log buffer (thread-safe)
+static LOG_BUFFER: Mutex<Vec<LogEntry>> = Mutex::new(Vec::new());
+
+/// Add a log entry (called via js_log command from frontend, or manually from Rust)
+pub fn add_log(level: &str, message: &str) {
+    if let Ok(mut buffer) = LOG_BUFFER.lock() {
+        let timestamp = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .map(|d| {
+                let secs = d.as_secs();
+                let hours = (secs / 3600) % 24;
+                let mins = (secs / 60) % 60;
+                let s = secs % 60;
+                format!("{:02}:{:02}:{:02}", hours, mins, s)
+            })
+            .unwrap_or_else(|_| "??:??:??".to_string());
+
+        buffer.push(LogEntry {
+            timestamp,
+            level: level.to_string(),
+            message: message.to_string(),
+        });
+
+        // Keep only recent entries
+        if buffer.len() > MAX_LOG_ENTRIES {
+            buffer.drain(0..buffer.len() - MAX_LOG_ENTRIES);
+        }
+    }
+}
+
+/// Log at INFO level
+#[macro_export]
+macro_rules! app_log {
+    ($($arg:tt)*) => {
+        $crate::commands::add_log("INFO", &format!($($arg)*));
+        eprintln!($($arg)*);
+    };
+}
 
 /// Language swap result payload
 #[derive(serde::Serialize, Clone)]
@@ -782,6 +837,18 @@ pub async fn dismiss_result(app_handle: tauri::AppHandle) -> Result<(), String> 
         window.hide().map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+/// Get recent log entries for debugging
+#[tauri::command]
+pub fn get_recent_logs() -> Vec<LogEntry> {
+    LOG_BUFFER.lock().map(|b| b.clone()).unwrap_or_default()
+}
+
+/// Add a log entry from the frontend (for debugging)
+#[tauri::command]
+pub fn log_from_frontend(level: String, message: String) {
+    add_log(&level, &message);
 }
 
 /// Get fullscreen screenshot as base64 (for freeze overlay)

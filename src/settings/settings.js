@@ -36,6 +36,7 @@ const apiKeyModalClose = document.getElementById('api-key-modal-close');
 const apiKeyModalTitle = document.getElementById('api-key-modal-title');
 const apiKeyModalBody = document.getElementById('api-key-modal-body');
 const engineKeyStatus = document.getElementById('engine-key-status');
+const apiKeyGroup = document.getElementById('api-key-group');
 const historyExportJsonBtn = document.getElementById('history-export-json');
 const historyExportCsvBtn = document.getElementById('history-export-csv');
 const historyClearBtn = document.getElementById('history-clear');
@@ -506,6 +507,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         sourceLangSelect.value = settings.source_lang || 'auto';
         targetLangSelect.value = settings.target_lang || 'es';
         engineSelect.value = settings.engine || 'google_gtx';
+        // Check API key status for the loaded engine
+        await checkEngineKeyStatus();
         overlayPositionSelect.value = settings.overlay_position || 'near-selection';
 
         // Handle auto-dismiss: if timeout > 0, check and show; if 0, uncheck and hide
@@ -535,11 +538,13 @@ document.addEventListener('DOMContentLoaded', async () => {
             renderHistory();
         }
 
-        // Load API key (if any)
+        // Load API key (if any) for the current engine selection
         try {
-            const key = await invoke('get_api_key', { engine: settings.engine });
+            const key = await invoke('get_api_key', { engine: engineSelect.value });
             if (key) {
                 apiKeyInput.value = key;
+            } else {
+                apiKeyInput.value = '';
             }
         } catch {
             // No API key stored, leave empty
@@ -803,21 +808,31 @@ async function checkEngineKeyStatus() {
     const enginesNeedingKey = ['gemini', 'deepl', 'libretranslate'];
 
     if (!enginesNeedingKey.includes(engine)) {
+        // Hide API key field for engines that don't need it
+        apiKeyGroup.style.display = 'none';
+        apiKeyInput.value = '';
         engineKeyStatus.textContent = '';
         engineKeyStatus.style.color = '';
         return;
     }
 
+    // Show API key field for engines that need it
+    apiKeyGroup.style.display = 'block';
+
     try {
-        const hasKey = await invoke('check_api_key', { engine });
-        if (hasKey) {
+        // Load the stored key for this engine
+        const key = await invoke('get_api_key', { engine });
+        if (key) {
+            apiKeyInput.value = key;
             engineKeyStatus.textContent = `✓ ${engine.toUpperCase()} API key stored`;
             engineKeyStatus.style.color = 'var(--success, #51cf66)';
         } else {
+            apiKeyInput.value = '';
             engineKeyStatus.textContent = `✗ No ${engine.toUpperCase()} API key stored`;
             engineKeyStatus.style.color = 'var(--error, #ff6b6b)';
         }
     } catch (e) {
+        apiKeyInput.value = '';
         engineKeyStatus.textContent = `✗ Error checking key: ${e}`;
         engineKeyStatus.style.color = 'var(--error, #ff6b6b)';
     }
@@ -825,3 +840,57 @@ async function checkEngineKeyStatus() {
 
 // Check status when engine changes
 engineSelect.addEventListener('change', checkEngineKeyStatus);
+
+// ============================================================
+// Log Viewer
+// ============================================================
+
+const viewLogsBtn = document.getElementById('view-logs-btn');
+const logPanel = document.getElementById('log-panel');
+const logContent = document.getElementById('log-content');
+const clearLogsBtn = document.getElementById('clear-logs-btn');
+
+let logPanelVisible = false;
+
+async function loadLogs() {
+    try {
+        const logs = await invoke('get_recent_logs');
+        if (logs.length === 0) {
+            logContent.textContent = 'No logs yet';
+            return;
+        }
+        // Format logs with color coding
+        logContent.innerHTML = logs.map(entry => {
+            let color = 'var(--text-secondary)';
+            if (entry.level === 'ERROR') color = 'var(--error, #ff6b6b)';
+            else if (entry.level === 'WARN') color = '#f59f00';
+            else if (entry.level === 'INFO') color = 'var(--accent, #4e9af1)';
+            return `<span style="color: #555;">[${entry.timestamp}]</span> <span style="color: ${color};">[${entry.level}]</span> ${entry.message}`;
+        }).join('\n');
+        // Scroll to bottom
+        logContent.scrollTop = logContent.scrollHeight;
+    } catch (e) {
+        logContent.textContent = `Error loading logs: ${e}`;
+    }
+}
+
+viewLogsBtn.addEventListener('click', async () => {
+    logPanelVisible = !logPanelVisible;
+    if (logPanelVisible) {
+        logPanel.style.display = 'block';
+        await loadLogs();
+    } else {
+        logPanel.style.display = 'none';
+    }
+});
+
+clearLogsBtn.addEventListener('click', () => {
+    logContent.textContent = 'Logs cleared';
+});
+
+// Auto-refresh logs every 3 seconds when panel is visible
+setInterval(() => {
+    if (logPanelVisible) {
+        loadLogs();
+    }
+}, 3000);
