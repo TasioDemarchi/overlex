@@ -3,8 +3,7 @@
 // Emits "game-changed" events when the active window or game context changes.
 //
 // Windows-only: uses Win32 APIs that are only available on Windows targets.
-
-#![cfg(windows)]
+// Conditionally compiled via #[cfg(windows)] in lib.rs.
 
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
