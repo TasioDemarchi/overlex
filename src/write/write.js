@@ -97,10 +97,22 @@ try {
             }
         });
 
-        // Debug: settings changed (show_debug toggled)
+        // Debug: settings changed (show_debug toggled or engine/language changed)
         listen('settings-changed', (event) => {
             const payload = event.payload;
-            if (payload && typeof payload.show_debug === 'boolean') {
+            if (!payload) return;
+            // Update engine if changed
+            if (payload.engine) {
+                __currentEngine = payload.engine;
+            }
+            // Update language display if source_lang or target_lang changed
+            if (payload.source_lang || payload.target_lang) {
+                const sourceUpper = (payload.source_lang === 'auto' ? 'AUTO' : (payload.source_lang || '').toUpperCase());
+                const targetUpper = (payload.target_lang || '').toUpperCase();
+                langDisplay.textContent = `${sourceUpper} → ${targetUpper}`;
+            }
+            // Toggle debug visibility
+            if (typeof payload.show_debug === 'boolean') {
                 const debugEl = document.getElementById('debug-line');
                 if (!debugEl) return;
                 if (payload.show_debug) {

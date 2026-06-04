@@ -189,6 +189,12 @@ let __currentEngine = '—';
                 if (payload.engine) {
                     __currentEngine = payload.engine;
                 }
+                // Update language display if source_lang or target_lang changed
+                if (payload.source_lang || payload.target_lang) {
+                    const sourceUpper = (payload.source_lang === 'auto' ? 'AUTO' : (payload.source_lang || '').toUpperCase());
+                    const targetUpper = (payload.target_lang || '').toUpperCase();
+                    langDisplay.textContent = `${sourceUpper} → ${targetUpper}`;
+                }
                 if (typeof payload.show_debug === 'boolean') {
                     const debugEl = document.getElementById('debug-line');
                     if (!debugEl) return;
