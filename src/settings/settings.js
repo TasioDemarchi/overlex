@@ -35,6 +35,7 @@ const apiKeyModal = document.getElementById('api-key-modal');
 const apiKeyModalClose = document.getElementById('api-key-modal-close');
 const apiKeyModalTitle = document.getElementById('api-key-modal-title');
 const apiKeyModalBody = document.getElementById('api-key-modal-body');
+const engineKeyStatus = document.getElementById('engine-key-status');
 const historyExportJsonBtn = document.getElementById('history-export-json');
 const historyExportCsvBtn = document.getElementById('history-export-csv');
 const historyClearBtn = document.getElementById('history-clear');
@@ -791,3 +792,36 @@ document.addEventListener('keydown', (e) => {
         apiKeyModal.classList.remove('visible');
     }
 });
+
+// ============================================================
+// API Key Status Checker
+// ============================================================
+
+// Check and display API key status for current engine
+async function checkEngineKeyStatus() {
+    const engine = engineSelect.value;
+    const enginesNeedingKey = ['gemini', 'deepl', 'libretranslate'];
+
+    if (!enginesNeedingKey.includes(engine)) {
+        engineKeyStatus.textContent = '';
+        engineKeyStatus.style.color = '';
+        return;
+    }
+
+    try {
+        const hasKey = await invoke('check_api_key', { engine });
+        if (hasKey) {
+            engineKeyStatus.textContent = `✓ ${engine.toUpperCase()} API key stored`;
+            engineKeyStatus.style.color = 'var(--success, #51cf66)';
+        } else {
+            engineKeyStatus.textContent = `✗ No ${engine.toUpperCase()} API key stored`;
+            engineKeyStatus.style.color = 'var(--error, #ff6b6b)';
+        }
+    } catch (e) {
+        engineKeyStatus.textContent = `✗ Error checking key: ${e}`;
+        engineKeyStatus.style.color = 'var(--error, #ff6b6b)';
+    }
+}
+
+// Check status when engine changes
+engineSelect.addEventListener('change', checkEngineKeyStatus);

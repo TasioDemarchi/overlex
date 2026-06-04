@@ -806,6 +806,15 @@ pub async fn get_api_key(engine: String) -> Result<String, String> {
     settings::get_api_key(&engine)
 }
 
+/// Check if API key exists for a given engine (debug helper)
+#[tauri::command]
+pub async fn check_api_key(engine: String) -> Result<bool, String> {
+    match settings::get_api_key(&engine) {
+        Ok(_) => Ok(true),
+        Err(_) => Ok(false),
+    }
+}
+
 /// Set API key for translation engine
 #[tauri::command]
 pub async fn set_api_key(engine: String, key: String) -> Result<(), String> {

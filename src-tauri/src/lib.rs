@@ -543,6 +543,7 @@ pub fn run() {
             commands::hide_window,
             commands::get_screenshot_base64,
             commands::get_api_key,
+            commands::check_api_key,
             commands::set_api_key,
             commands::get_stored_screenshot,
             commands::drag_result_window_noactivate,
