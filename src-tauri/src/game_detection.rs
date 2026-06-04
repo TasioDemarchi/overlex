@@ -49,7 +49,7 @@ pub struct GameDetectorState {
 // ---------------------------------------------------------------------------
 
 /// Payload emitted on the "game-changed" event.
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct GameChangedPayload {
     pub process_name: Option<String>,
     pub fullscreen_exclusive: bool,
