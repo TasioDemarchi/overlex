@@ -1,6 +1,7 @@
 // Gemini adapter — Google Gemini 2.0 Flash API for context-aware translation
 // POST https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}
 
+use crate::app_log;
 use crate::translation::{
     TranslationContext, TranslationEngine, TranslationError, TranslationResult,
 };
