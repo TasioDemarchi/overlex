@@ -18,6 +18,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
     GetMessageW, PostThreadMessageW, MSG, WM_HOTKEY, WM_QUIT,
 };
 
+use crate::app_log;
+
 const HOTKEY_ID_OCR: i32 = 1;
 const HOTKEY_ID_WRITE: i32 = 2;
 const HOTKEY_ID_SWAP: i32 = 3;
@@ -148,7 +150,7 @@ pub fn register_hotkeys_with_swap(
             )
         };
         if ocr_ok.is_err() {
-            eprintln!("Failed to register OCR hotkey — may be in use by another application");
+            app_log!("Failed to register OCR hotkey — may be in use by another application");
             return;
         }
 
@@ -163,7 +165,7 @@ pub fn register_hotkeys_with_swap(
         if write_ok.is_err() {
             // Clean up the OCR hotkey we just registered
             let _ = unsafe { UnregisterHotKey(HWND::default(), HOTKEY_ID_OCR) };
-            eprintln!("Failed to register Write hotkey — may be in use by another application");
+            app_log!("Failed to register Write hotkey — may be in use by another application");
             return;
         }
 
@@ -178,18 +180,15 @@ pub fn register_hotkeys_with_swap(
                 )
             };
             if swap_ok.is_err() {
-                eprintln!("Failed to register Swap hotkey (CTRL+SHIFT+LEFT) — may be in use by another application");
-                false
+                app_log!("Failed to register Swap hotkey (CTRL+SHIFT+LEFT) — may be in use by another application");
             } else {
-                eprintln!("Swap hotkey registered: CTRL+SHIFT+LEFT (id={HOTKEY_ID_SWAP})");
-                true
+                app_log!("Swap hotkey registered: CTRL+SHIFT+LEFT (id={HOTKEY_ID_SWAP})");
             }
         } else {
-            eprintln!("Swap hotkey not configured (disabled)");
-            false
-        };
+            app_log!("Swap hotkey not configured (disabled)");
+        }
 
-        eprintln!(
+        app_log!(
             "Hotkeys registered: OCR (id={}), Write (id={}){}",
             HOTKEY_ID_OCR,
             HOTKEY_ID_WRITE,
@@ -214,15 +213,15 @@ pub fn register_hotkeys_with_swap(
                 let hotkey_id = msg.wParam.0 as i32;
                 match hotkey_id {
                     HOTKEY_ID_OCR => {
-                        eprintln!("OCR hotkey pressed!");
+                        app_log!("OCR hotkey pressed!");
                         let _ = app_handle.emit("start-ocr-flow", ());
                     }
                     HOTKEY_ID_WRITE => {
-                        eprintln!("Write hotkey pressed!");
+                        app_log!("Write hotkey pressed!");
                         let _ = app_handle.emit("start-write-flow", ());
                     }
                     HOTKEY_ID_SWAP => {
-                        eprintln!("Swap languages hotkey pressed!");
+                        app_log!("Swap languages hotkey pressed!");
                         let _ = app_handle.emit("swap-languages", ());
                     }
                     _ => {}
@@ -234,7 +233,7 @@ pub fn register_hotkeys_with_swap(
         let _ = unsafe { UnregisterHotKey(HWND::default(), HOTKEY_ID_OCR) };
         let _ = unsafe { UnregisterHotKey(HWND::default(), HOTKEY_ID_WRITE) };
         let _ = unsafe { UnregisterHotKey(HWND::default(), HOTKEY_ID_SWAP) };
-        eprintln!("Hotkeys unregistered, thread exiting");
+        app_log!("Hotkeys unregistered, thread exiting");
     });
 
     state.thread_handle = Some(handle);

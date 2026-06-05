@@ -445,6 +445,23 @@ function updateBanner() {
     activeProfileBanner.style.display = 'block';
 }
 
+// Retry helper for invoke calls that may fail due to state timing
+async function invokeWithRetry(cmd, args, maxRetries = 3, delayMs = 500) {
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+        try {
+            return await invoke(cmd, args);
+        } catch (e) {
+            const isStateError = typeof e === 'string' && e.includes('state not managed');
+            if (isStateError && attempt < maxRetries - 1) {
+                console.warn(`[retry] ${cmd} attempt ${attempt + 1} failed: ${e}. Retrying in ${delayMs}ms...`);
+                await new Promise(resolve => setTimeout(resolve, delayMs));
+                continue;
+            }
+            throw e;
+        }
+    }
+}
+
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', async () => {
     // Setup hotkey capture
@@ -496,9 +513,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     historyExportCsvBtn.addEventListener('click', () => exportHistory('csv'));
     historyClearBtn.addEventListener('click', clearHistory);
 
-    // Load current settings
+    // Load current settings (with retry for Tauri v2 state timing)
     try {
-        const settings = await invoke('get_settings');
+        const settings = await invokeWithRetry('get_settings');
         currentSettings = settings;
 
         // Populate form fields
@@ -591,6 +608,8 @@ saveBtn.addEventListener('click', async () => {
                 engine: engineSelect.value,
                 key: apiKeyInput.value
             });
+            // Refresh key status display after saving
+            await checkEngineKeyStatus();
         }
 
         // Update current settings

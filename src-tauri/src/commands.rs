@@ -64,10 +64,10 @@ pub fn add_log(level: &str, message: &str) {
 /// Log at INFO level
 #[macro_export]
 macro_rules! app_log {
-    ($($arg:tt)*) => {
+    ($($arg:tt)*) => {{
         $crate::commands::add_log("INFO", &format!($($arg)*));
         eprintln!($($arg)*);
-    };
+    }};
 }
 
 /// Language swap result payload
@@ -93,7 +93,7 @@ fn position_result_window(
     let (screen_width, screen_height) = match capture::get_screen_size() {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("Failed to get screen size for positioning: {}", e);
+            app_log!("Failed to get screen size for positioning: {}", e);
             return;
         }
     };
@@ -284,7 +284,7 @@ pub async fn swap_languages(
     // Emit event to all windows so they can update their UI
     let _ = app_handle.emit("languages-swapped", &result);
 
-    eprintln!("Languages swapped: {} -> {}", new_source, new_target);
+    app_log!("Languages swapped: {} -> {}", new_source, new_target);
     Ok(result)
 }
 
@@ -337,7 +337,7 @@ pub async fn save_settings(
                 .find(|p| &p.display_name == profile_name)
             {
                 let overridden = apply_profile_overrides(&saved, profile);
-                eprintln!(
+                app_log!(
                     "[SETTINGS] Re-applied profile '{}' overrides after save",
                     profile_name
                 );
@@ -355,12 +355,13 @@ pub async fn save_settings(
 
     // Step 4: Swap engine if needed (lock 4).
     let engine_changed = old_engine != effective_settings.engine;
-    if engine_changed {
+    let engine_requires_key = matches!(effective_settings.engine.as_str(), "gemini" | "deepl" | "libretranslate");
+    if engine_changed || engine_requires_key {
         let new_engine: Arc<dyn TranslationEngine> =
             Arc::from(crate::translation::create_engine(&effective_settings));
         let mut engine_guard = translation_state.engine.write().unwrap();
         *engine_guard = new_engine;
-        eprintln!(
+        app_log!(
             "[SETTINGS] Translation engine swapped to: {}",
             effective_settings.engine
         );
@@ -383,7 +384,7 @@ pub async fn save_settings(
         }),
     );
 
-    eprintln!(
+    app_log!(
         "[SETTINGS] Saved. effective engine={}, show_debug={}",
         effective_settings.engine, effective_settings.show_debug
     );
@@ -455,6 +456,9 @@ pub async fn translate_text(
                     );
                 }
             }
+            if let Some(write_win) = app_handle.get_webview_window("write") {
+                let _ = write_win.hide();
+            }
             return Err(e.to_string());
         }
     };
@@ -513,7 +517,7 @@ pub async fn translate_text(
         };
         let _ = tokio::task::spawn_blocking(move || {
             if let Err(e) = history::HistoryDb::insert(&entry) {
-                eprintln!("[HISTORY] Failed to save entry: {}", e);
+                app_log!("[HISTORY] Failed to save entry: {}", e);
             }
         });
     }
@@ -546,6 +550,9 @@ pub async fn ocr_capture_region(
                 },
                 true,
             );
+            if let Some(freeze_win) = app_handle.get_webview_window("freeze") {
+                let _ = freeze_win.hide();
+            }
             return Err("No screenshot available. Start OCR flow first.".to_string());
         }
     };
@@ -563,6 +570,9 @@ pub async fn ocr_capture_region(
                 },
                 true,
             );
+            if let Some(freeze_win) = app_handle.get_webview_window("freeze") {
+                let _ = freeze_win.hide();
+            }
             return Err(format!("Failed to capture region: {}", e));
         }
     };
@@ -579,15 +589,15 @@ pub async fn ocr_capture_region(
             .await
             {
                 Ok(Ok(processed)) => {
-                    eprintln!("[OCR] Pre-processing applied (binarize={})", binarize);
+                    app_log!("[OCR] Pre-processing applied (binarize={})", binarize);
                     processed
                 }
                 Ok(Err(e)) => {
-                    eprintln!("[OCR] Pre-processing failed, using original: {}", e);
+                    app_log!("[OCR] Pre-processing failed, using original: {}", e);
                     cropped_png
                 }
                 Err(e) => {
-                    eprintln!("[OCR] Pre-processing task panicked: {}", e);
+                    app_log!("[OCR] Pre-processing task panicked: {}", e);
                     cropped_png
                 }
             }
@@ -608,6 +618,9 @@ pub async fn ocr_capture_region(
                 },
                 true,
             );
+            if let Some(freeze_win) = app_handle.get_webview_window("freeze") {
+                let _ = freeze_win.hide();
+            }
             return Err(format!("OCR failed: {}", e));
         }
     };
@@ -635,6 +648,9 @@ pub async fn ocr_capture_region(
             },
             true,
         );
+        if let Some(freeze_win) = app_handle.get_webview_window("freeze") {
+            let _ = freeze_win.hide();
+        }
         return Err("No text detected in selection".to_string());
     }
 
@@ -693,6 +709,9 @@ pub async fn ocr_capture_region(
                     );
                 }
             }
+            if let Some(freeze_win) = app_handle.get_webview_window("freeze") {
+                let _ = freeze_win.hide();
+            }
             return Err(format!("Translation failed: {}", e));
         }
     };
@@ -710,7 +729,7 @@ pub async fn ocr_capture_region(
         };
         let _ = tokio::task::spawn_blocking(move || {
             if let Err(e) = history::HistoryDb::insert(&entry) {
-                eprintln!("[HISTORY] Failed to save entry: {}", e);
+                app_log!("[HISTORY] Failed to save entry: {}", e);
             }
         });
     }
@@ -814,7 +833,7 @@ pub async fn translate_chat(
         };
         let _ = tokio::task::spawn_blocking(move || {
             if let Err(e) = history::HistoryDb::insert(&entry) {
-                eprintln!("[HISTORY] Failed to save entry: {}", e);
+                app_log!("[HISTORY] Failed to save entry: {}", e);
             }
         });
     }
@@ -1088,7 +1107,7 @@ pub async fn add_profile(
     }
 
     let _ = app_handle.emit("settings-changed", &overridden_settings);
-    eprintln!(
+    app_log!(
         "[PROFILE] Added profile '{}' (matches_active={})",
         profile.display_name, matches_active
     );
@@ -1152,7 +1171,7 @@ pub async fn remove_profile(
     }
 
     let _ = app_handle.emit("settings-changed", &updated_settings);
-    eprintln!(
+    app_log!(
         "[PROFILE] Removed profile '{}' (was_active={})",
         display_name, was_active
     );
@@ -1221,7 +1240,7 @@ pub async fn update_profile(
         let _ = app_handle.emit("active-game-changed", &info);
     }
     let _ = app_handle.emit("settings-changed", &updated_settings);
-    eprintln!(
+    app_log!(
         "[PROFILE] Updated profile '{}' (is_active={})",
         display_name, is_active
     );
@@ -1272,7 +1291,7 @@ pub async fn toggle_debug(
 
     // 3. Emit event so overlays update
     let _ = app_handle.emit("settings-changed", &updated_settings);
-    eprintln!("[DEBUG] show_debug set to {}", show);
+    app_log!("[DEBUG] show_debug set to {}", show);
     Ok(())
 }
 

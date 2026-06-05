@@ -16,6 +16,7 @@ pub use libretranslate::LibreTranslateAdapter;
 pub use mymemory::MyMemoryAdapter;
 
 use crate::commands::Settings;
+use crate::app_log;
 
 /// Game context passed to translation engines for domain-aware translations
 #[derive(Debug, Clone)]
@@ -79,7 +80,7 @@ pub fn create_engine(settings: &Settings) -> Box<dyn TranslationEngine> {
     match settings.engine.as_str() {
         "gemini" => {
             let api_key = crate::settings::get_api_key("gemini").ok();
-            eprintln!(
+            app_log!(
                 "[ENGINE] Using Gemini 2.0 Flash (API key: {})",
                 if api_key.is_some() { "yes" } else { "no" }
             );
@@ -87,19 +88,19 @@ pub fn create_engine(settings: &Settings) -> Box<dyn TranslationEngine> {
         }
         "deepl" => {
             let api_key = crate::settings::get_api_key("deepl").ok();
-            eprintln!(
+            app_log!(
                 "[ENGINE] Using DeepL Free (API key: {})",
                 if api_key.is_some() { "yes" } else { "no" }
             );
             Box::new(DeepLAdapter::new(api_key))
         }
         "mymemory" => {
-            eprintln!("[ENGINE] Using MyMemory (free, no API key)");
+            app_log!("[ENGINE] Using MyMemory (free, no API key)");
             Box::new(MyMemoryAdapter::new())
         }
         "libretranslate" => {
             let api_key = crate::settings::get_api_key("libretranslate").ok();
-            eprintln!(
+            app_log!(
                 "[ENGINE] Using LibreTranslate at {}",
                 settings.libre_translate_url
             );
@@ -109,7 +110,7 @@ pub fn create_engine(settings: &Settings) -> Box<dyn TranslationEngine> {
             ))
         }
         "google_gtx" | _ => {
-            eprintln!("[ENGINE] Using Google GTX (free, no API key)");
+            app_log!("[ENGINE] Using Google GTX (free, no API key)");
             Box::new(GoogleGtxAdapter::new())
         }
     }

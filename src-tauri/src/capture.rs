@@ -24,6 +24,8 @@ use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
 use windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_HARDWARE;
 use windows::core::Interface;
 
+use crate::app_log;
+
 /// Capture the primary monitor and return PNG bytes.
 pub fn capture_fullscreen() -> Result<Vec<u8>, String> {
     let (pixels, width, height) = capture_fullscreen_raw()?;
@@ -49,14 +51,14 @@ pub fn capture_fullscreen_raw() -> Result<(Vec<u8>, u32, u32), String> {
     // Try DXGI first, fallback to GDI if it fails
     match capture_fullscreen_raw_dxgi() {
         Ok(result) => {
-            eprintln!("[CAPTURE] DXGI succeeded {}x{}", result.1, result.2);
+            app_log!("[CAPTURE] DXGI succeeded {}x{}", result.1, result.2);
             Ok(result)
         },
         Err(e) => {
-            eprintln!("[CAPTURE] DXGI failed: {}, falling back to GDI", e);
+            app_log!("[CAPTURE] DXGI failed: {}, falling back to GDI", e);
             let r = capture_fullscreen_raw_gdi();
             if let Ok(ref res) = r {
-                eprintln!("[CAPTURE] GDI succeeded {}x{}", res.1, res.2);
+                app_log!("[CAPTURE] GDI succeeded {}x{}", res.1, res.2);
             }
             r
         }
@@ -133,10 +135,10 @@ fn capture_fullscreen_raw_dxgi() -> Result<(Vec<u8>, u32, u32), String> {
                 .AcquireNextFrame(timeout_ms, &mut frame_info, &mut desktop_resource)
                 .map_err(|e| format!("AcquireNextFrame failed: {}", e))?;
             if frame_info.AccumulatedFrames > 0 {
-                eprintln!("[DXGI] got frame on attempt {}, AccumulatedFrames={}", attempt, frame_info.AccumulatedFrames);
+                app_log!("[DXGI] got frame on attempt {}, AccumulatedFrames={}", attempt, frame_info.AccumulatedFrames);
                 break;
             }
-            eprintln!("[DXGI] empty frame on attempt {}, retrying...", attempt);
+            app_log!("[DXGI] empty frame on attempt {}, retrying...", attempt);
             let _ = duplication.ReleaseFrame();
         }
 

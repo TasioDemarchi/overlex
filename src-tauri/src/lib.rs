@@ -83,12 +83,12 @@ fn setup_tray<R: Runtime>(app: &tauri::App<R>) -> Result<(), Box<dyn std::error:
         .on_menu_event(|app, event| match event.id.as_ref() {
             "settings" => {
                 if let Some(window) = app.get_webview_window("main") {
-                    eprintln!("Opening settings window...");
+                    app_log!("Opening settings window...");
                     let show_result = window.show();
                     let focus_result = window.set_focus();
-                    eprintln!("show: {:?}, focus: {:?}", show_result, focus_result);
+                    app_log!("show: {:?}, focus: {:?}", show_result, focus_result);
                 } else {
-                    eprintln!("Settings window 'main' NOT FOUND");
+                    app_log!("Settings window 'main' NOT FOUND");
                 }
             }
             "quit" => {
@@ -135,12 +135,14 @@ pub fn run() {
                 engine: Arc::new(RwLock::new(engine)),
             };
             app.manage(translation_state);
+            app_log!("[SETUP] TranslationState managed");
 
             // Initialize screenshot state (empty initially)
             let screenshot_state = ScreenshotState {
                 png_data: Arc::new(Mutex::new(None)),
             };
             app.manage(screenshot_state);
+            app_log!("[SETUP] ScreenshotState managed");
 
             // Initialize settings state
             let settings_state = SettingsState {
@@ -148,12 +150,14 @@ pub fn run() {
                 saved_defaults: Arc::new(Mutex::new(settings)),
             };
             app.manage(settings_state);
+            app_log!("[SETUP] SettingsState managed");
 
             // Initialize active game state
             let active_game_state = ActiveGameState {
                 info: Arc::new(Mutex::new(ActiveGameInfo::default())),
             };
             app.manage(active_game_state);
+            app_log!("[SETUP] ActiveGameState managed");
 
             // Initialize history DB at %APPDATA%/overlex/history.db
             let appdata = std::env::var("APPDATA").unwrap_or_else(|_| ".".to_string());
@@ -162,16 +166,18 @@ pub fn run() {
                 let _ = std::fs::create_dir_all(parent);
             }
             match history::HistoryDb::init(&history_path) {
-                Ok(()) => eprintln!("[HISTORY] Database initialized at {:?}", history_path),
-                Err(e) => eprintln!("[HISTORY] Failed to initialize database: {}", e),
+                Ok(()) => app_log!("[HISTORY] Database initialized at {:?}", history_path),
+                Err(e) => app_log!("[HISTORY] Failed to initialize database: {}", e),
             }
             app.manage(HistoryState {});
+            app_log!("[SETUP] HistoryState managed");
 
             // Initialize focus restore state (for write mode)
             let focus_state = FocusRestoreState {
                 hwnd: Arc::new(Mutex::new(None)),
             };
             app.manage(focus_state);
+            app_log!("[SETUP] FocusRestoreState managed");
 
             // Initialize game detection background thread
             #[cfg(windows)]
@@ -197,26 +203,26 @@ pub fn run() {
                     let payload: GameChangedPayload = match serde_json::from_str(event.payload()) {
                         Ok(p) => p,
                         Err(e) => {
-                            eprintln!("[AUTO_SWITCH] Failed to parse game-changed payload: {}", e);
+                            app_log!("[AUTO_SWITCH] Failed to parse game-changed payload: {}", e);
                             return;
                         }
                     };
 
-                    eprintln!(
+                    app_log!(
                         "[AUTO_SWITCH] game-changed: process={:?}, profile={:?}, fullscreen={}",
                         payload.process_name, payload.matched_profile, payload.fullscreen_exclusive
                     );
 
                     let Some(settings_state) = app_handle_game.try_state::<SettingsState>() else {
-                        eprintln!("[AUTO_SWITCH] SettingsState not available");
+                        app_log!("[AUTO_SWITCH] SettingsState not available");
                         return;
                     };
                     let Some(active_game_state) = app_handle_game.try_state::<ActiveGameState>() else {
-                        eprintln!("[AUTO_SWITCH] ActiveGameState not available");
+                        app_log!("[AUTO_SWITCH] ActiveGameState not available");
                         return;
                     };
                     let Some(translation_state) = app_handle_game.try_state::<TranslationState>() else {
-                        eprintln!("[AUTO_SWITCH] TranslationState not available");
+                        app_log!("[AUTO_SWITCH] TranslationState not available");
                         return;
                     };
 
@@ -233,14 +239,14 @@ pub fn run() {
                         if let Some(ref profile_name) = payload.matched_profile {
                             if let Some(profile) = saved.profiles.iter().find(|p| &p.display_name == profile_name) {
                                 let overridden = crate::commands::apply_profile_overrides(&saved, profile);
-                                eprintln!("[AUTO_SWITCH] Applied profile '{}' overrides", profile_name);
+                                app_log!("[AUTO_SWITCH] Applied profile '{}' overrides", profile_name);
                                 overridden
                             } else {
-                                eprintln!("[AUTO_SWITCH] Profile '{}' not found in saved_defaults, using defaults", profile_name);
+                                app_log!("[AUTO_SWITCH] Profile '{}' not found in saved_defaults, using defaults", profile_name);
                                 saved.clone()
                             }
                         } else {
-                            eprintln!("[AUTO_SWITCH] No profile match, reverting to saved defaults");
+                            app_log!("[AUTO_SWITCH] No profile match, reverting to saved defaults");
                             saved.clone()
                         }
                     };
@@ -254,7 +260,7 @@ pub fn run() {
                             Arc::from(crate::translation::create_engine(&effective_settings));
                         let mut engine_guard = translation_state.engine.write().unwrap();
                         *engine_guard = new_engine;
-                        eprintln!("[AUTO_SWITCH] Engine swapped: {} -> {}",
+                        app_log!("[AUTO_SWITCH] Engine swapped: {} -> {}",
                             current_engine, effective_settings.engine);
                     }
 
@@ -287,8 +293,8 @@ pub fn run() {
                 &settings_for_hotkey.write_hotkey,
                 app.handle().clone(),
             ) {
-                Ok(()) => eprintln!("Global hotkeys registered successfully"),
-                Err(e) => eprintln!("Failed to register hotkeys: {e}"),
+                Ok(()) => app_log!("Global hotkeys registered successfully"),
+                Err(e) => app_log!("Failed to register hotkeys: {e}"),
             }
             // Store state so we can unregister later
             app.manage(std::sync::Mutex::new(hotkey_state));
@@ -298,23 +304,23 @@ pub fn run() {
             app.listen("start-ocr-flow", move |_event| {
                 let handle = app_handle_ocr.clone();
                 tauri::async_runtime::spawn(async move {
-                    eprintln!("[RUST] starting capture...");
+                    app_log!("[RUST] starting capture...");
                     // 1. Capture screenshot as raw RGBA bytes FIRST (before showing freeze window)
                     //    If we show the window first, BitBlt captures the black overlay instead of the screen.
                     let raw_result = match tokio::task::spawn_blocking(capture::capture_fullscreen_raw).await {
                         Ok(Ok(data)) => data,
                         Ok(Err(e)) => {
-                            eprintln!("Screenshot capture failed: {}", e);
+                            app_log!("Screenshot capture failed: {}", e);
                             return;
                         }
                         Err(e) => {
-                            eprintln!("Screenshot task panicked: {}", e);
+                            app_log!("Screenshot task panicked: {}", e);
                             return;
                         }
                     };
 
                     let (rgba_bytes, width, height) = raw_result;
-                    eprintln!("[RUST] capture done {}x{}, spawning background PNG encode...", width, height);
+                    app_log!("[RUST] capture done {}x{}, spawning background PNG encode...", width, height);
 
                     // 2. Spawn PNG encode in background (don't await yet - runs in parallel)
                     let rgba_for_png = rgba_bytes.clone();
@@ -325,7 +331,7 @@ pub fn run() {
                         let img: ImageBuffer<Rgba<u8>, Vec<u8>> = match ImageBuffer::from_raw(width_for_png, height_for_png, rgba_for_png) {
                             Some(i) => i,
                             None => {
-                                eprintln!("[PNG] Failed to create image buffer");
+                                app_log!("[PNG] Failed to create image buffer");
                                 return None;
                             }
                         };
@@ -337,11 +343,11 @@ pub fn run() {
                             image::codecs::png::FilterType::NoFilter,
                         );
                         if let Err(e) = encoder.write_image(img.as_raw(), width_for_png, height_for_png, image::ExtendedColorType::Rgba8) {
-                            eprintln!("[PNG] encoding failed: {}", e);
+                            app_log!("[PNG] encoding failed: {}", e);
                             return None;
                         }
 
-                        eprintln!("[PNG] background encode done, {} bytes", png_bytes.len());
+                        app_log!("[PNG] background encode done, {} bytes", png_bytes.len());
                         Some(png_bytes)
                     });
 
@@ -349,7 +355,7 @@ pub fn run() {
                     if let Some(freeze_win) = handle.get_webview_window("freeze") {
                         let _ = freeze_win.show();
                         let _ = freeze_win.set_focus();
-                        eprintln!("[RUST] freeze window shown immediately");
+                        app_log!("[RUST] freeze window shown immediately");
 
                         // Short delay to let WebView fully render before injecting
                         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
@@ -357,7 +363,7 @@ pub fn run() {
                         // Encode raw RGBA as base64 for ImageData (no PNG needed for display)
                         use base64::Engine as _;
                         let rgba_b64 = base64::engine::general_purpose::STANDARD.encode(&rgba_bytes);
-                        eprintln!("[RUST] rgba base64 len={}, injecting via ImageData eval...", rgba_b64.len());
+                        app_log!("[RUST] rgba base64 len={}, injecting via ImageData eval...", rgba_b64.len());
 
                         let js = format!(
                             r#"
@@ -391,7 +397,7 @@ pub fn run() {
                             rgba_b64 = rgba_b64
                         );
                         let eval_result = freeze_win.eval(&js);
-                        eprintln!("[RUST] eval result via ImageData: {:?}", eval_result);
+                        app_log!("[RUST] eval result via ImageData: {:?}", eval_result);
                     }
 
                     // 4. Await PNG task and store in ScreenshotState (runs in parallel with freeze display)
@@ -401,13 +407,13 @@ pub fn run() {
                             if let Some(state) = handle.try_state::<ScreenshotState>() {
                                 *state.png_data.lock().unwrap() = Some(png_bytes.clone());
                             }
-                            eprintln!("[RUST] PNG stored in ScreenshotState ({} bytes)", png_bytes.len());
+                            app_log!("[RUST] PNG stored in ScreenshotState ({} bytes)", png_bytes.len());
                         }
                         Ok(None) => {
-                            eprintln!("[RUST] PNG encode returned None");
+                            app_log!("[RUST] PNG encode returned None");
                         }
                         Err(e) => {
-                            eprintln!("[RUST] PNG task panicked: {}", e);
+                            app_log!("[RUST] PNG task panicked: {}", e);
                         }
                     }
                 });
@@ -477,7 +483,7 @@ pub fn run() {
 
                         // Save to disk and emit event
                         if let Err(e) = settings::save_settings_to_disk(&settings) {
-                            eprintln!("Failed to save swapped settings: {}", e);
+                            app_log!("Failed to save swapped settings: {}", e);
                             return;
                         }
 
@@ -491,7 +497,7 @@ pub fn run() {
                         // Emit to all windows
                         let _ = handle.emit("languages-swapped", payload);
 
-                        eprintln!("Languages swapped via hotkey: {} -> {}", new_source, new_target);
+                        app_log!("Languages swapped via hotkey: {} -> {}", new_source, new_target);
                     }
                 });
             });
@@ -509,13 +515,13 @@ pub fn run() {
                         unsafe {
                             SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex_style | 0x08000000_isize); // WS_EX_NOACTIVATE = 0x08000000
                         }
-                        eprintln!("Result window WS_EX_NOACTIVATE set successfully");
+                        app_log!("Result window WS_EX_NOACTIVATE set successfully");
                     } else {
-                        eprintln!("Warning: Could not get HWND for result window");
+                        app_log!("Warning: Could not get HWND for result window");
                     }
                 }
             } else {
-                eprintln!("Result window not found in setup - will be created on demand");
+                app_log!("Result window not found in setup - will be created on demand");
             }
 
             // Apply Windows blur effects (Mica/Acrylic/Blur) for visual enhancement
@@ -579,7 +585,7 @@ pub fn run() {
                 {
                     if let Some(state) = app_handle.try_state::<crate::game_detection::GameDetectorState>() {
                         state.shutdown.store(true, std::sync::atomic::Ordering::Release);
-                        eprintln!("[GAME_DETECT] Signalled shutdown via RunEvent::Exit");
+                        app_log!("[GAME_DETECT] Signalled shutdown via RunEvent::Exit");
                     }
                 }
             }

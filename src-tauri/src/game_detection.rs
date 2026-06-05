@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 
 use crate::commands::Settings;
+use crate::app_log;
 
 use windows::Win32::Foundation::{HWND, RECT, BOOL};
 use windows::Win32::System::Threading::{
@@ -133,7 +134,7 @@ pub fn spawn_detector(
 
         loop {
             if shutdown.load(Ordering::SeqCst) {
-                eprintln!("[GAME_DETECT] Shutdown signal received, exiting thread");
+                app_log!("[GAME_DETECT] Shutdown signal received, exiting thread");
                 break;
             }
 
@@ -201,12 +202,12 @@ pub fn spawn_detector(
                                 // Skip our own process — OverLex windows (Settings, etc.)
                                 // should not trigger game-changed events.
                                 if name.eq_ignore_ascii_case("overlex.exe") {
-                                    eprintln!("[GAME_DETECT] Skipping own process: {} (PID {pid})", name);
+                                    app_log!("[GAME_DETECT] Skipping own process: {} (PID {pid})", name);
                                     last_hwnd = Some(hwnd_raw);
                                     thread::sleep(Duration::from_millis(1000));
                                     continue;
                                 }
-                                eprintln!(
+                                app_log!(
                                     "[GAME_DETECT] Foreground: {} (PID {pid})",
                                     name
                                 );
@@ -214,13 +215,13 @@ pub fn spawn_detector(
                             file_name
                         }
                         Err(_) => {
-                            eprintln!("[GAME_DETECT] QueryFullProcessImageNameW failed for PID {pid}");
+                            app_log!("[GAME_DETECT] QueryFullProcessImageNameW failed for PID {pid}");
                             None
                         }
                     }
                 }
                 Err(_) => {
-                    eprintln!(
+                    app_log!(
                         "[GAME_DETECT] OpenProcess denied for PID {pid} — likely a protected process"
                     );
                     // Emit with no process info (keep fullscreen check in case it's a game).
@@ -284,7 +285,7 @@ pub fn spawn_detector(
                 fullscreen_exclusive: fullscreen,
                 matched_profile,
             };
-            eprintln!("[GAME_DETECT] Emitting game-changed: {:?}", &payload);
+            app_log!("[GAME_DETECT] Emitting game-changed: {:?}", &payload);
             let _ = app_handle.emit("game-changed", &payload);
 
             last_hwnd = Some(hwnd_raw);
@@ -293,6 +294,6 @@ pub fn spawn_detector(
             thread::sleep(Duration::from_millis(1000));
         }
 
-        eprintln!("[GAME_DETECT] Detector thread exited");
+        app_log!("[GAME_DETECT] Detector thread exited");
     })
 }

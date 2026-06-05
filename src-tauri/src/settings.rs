@@ -3,6 +3,7 @@
 use std::path::PathBuf;
 use keyring::Entry;
 use crate::commands::Settings;
+use crate::app_log;
 
 /// Get the settings file path: %APPDATA%/overlex/settings.json
 pub fn settings_path() -> Result<PathBuf, String> {
@@ -30,7 +31,7 @@ pub fn load_settings() -> Settings {
                 Ok(settings) => settings,
                 Err(e) => {
                     // Corrupt — backup and reset
-                    eprintln!("Corrupt settings.json: {e}. Backing up and resetting.");
+                    app_log!("Corrupt settings.json: {e}. Backing up and resetting.");
                     let bak = path.with_extension("json.bak");
                     let _ = std::fs::rename(&path, &bak);
                     let defaults = Settings::default();
