@@ -908,6 +908,170 @@ pub async fn set_api_key(engine: String, key: String) -> Result<(), String> {
     settings::set_api_key(&engine, &key)
 }
 
+/// Test API key by making a minimal request to the engine's API
+#[tauri::command]
+pub async fn test_api_key(engine: String) -> Result<TestApiKeyResult, String> {
+    use crate::translation::TranslationEngine;
+
+    let api_key = crate::settings::get_api_key(&engine)
+        .map_err(|e| format!("Failed to retrieve API key: {}", e))?;
+
+    match engine.as_str() {
+        "gemini" => {
+            // Test Gemini API with a minimal request
+            let url = format!(
+                "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={}",
+                api_key
+            );
+
+            let client = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(10))
+                .build()
+                .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+
+            let body = serde_json::json!({
+                "contents": [{
+                    "parts": [{"text": "Hi"}]
+                }]
+            });
+
+            let response = client
+                .post(&url)
+                .json(&body)
+                .send()
+                .await
+                .map_err(|e| format!("Network error: {}", e))?;
+
+            let status = response.status().as_u16();
+            let body_text = response.text().await.unwrap_or_default();
+
+            if status == 200 {
+                Ok(TestApiKeyResult {
+                    success: true,
+                    message: "Gemini API key is valid and working".to_string(),
+                })
+            } else if status == 403 {
+                // Check if it's a billing issue
+                if body_text.contains("billing")
+                    || body_text.contains("BILLING")
+                    || body_text.contains("quota")
+                    || body_text.contains("QUOTA")
+                    || body_text.contains("Cloud billing")
+                    || body_text.contains("project billing")
+                {
+                    Ok(TestApiKeyResult {
+                        success: false,
+                        message: "Billing not enabled. Enable billing in your Google Cloud project to use the free tier.".to_string(),
+                    })
+                } else {
+                    Ok(TestApiKeyResult {
+                        success: false,
+                        message: format!("API key rejected (HTTP 403). Check if the key is valid and has Gemini API access enabled.").to_string(),
+                    })
+                }
+            } else if status == 400 {
+                Ok(TestApiKeyResult {
+                    success: false,
+                    message: format!("Invalid request (HTTP 400): {}", &body_text[..body_text.len().min(200)]).to_string(),
+                })
+            } else {
+                Ok(TestApiKeyResult {
+                    success: false,
+                    message: format!("API error (HTTP {}): {}", status, &body_text[..body_text.len().min(200)]).to_string(),
+                })
+            }
+        }
+        "deepl" => {
+            // Test DeepL API with a minimal request
+            let url = "https://api-free.deepl.com/v2/translate";
+
+            let client = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(10))
+                .build()
+                .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+
+            let response = client
+                .post(url)
+                .form(&[
+                    ("auth_key", api_key.as_str()),
+                    ("text", "Hi"),
+                    ("target_lang", "ES"),
+                ])
+                .send()
+                .await
+                .map_err(|e| format!("Network error: {}", e))?;
+
+            let status = response.status().as_u16();
+            let body_text = response.text().await.unwrap_or_default();
+
+            if status == 200 {
+                Ok(TestApiKeyResult {
+                    success: true,
+                    message: "DeepL API key is valid and working".to_string(),
+                })
+            } else if status == 403 {
+                Ok(TestApiKeyResult {
+                    success: false,
+                    message: "DeepL API key rejected (HTTP 403). Check if the key is valid and has access to the free tier.".to_string(),
+                })
+            } else {
+                Ok(TestApiKeyResult {
+                    success: false,
+                    message: format!("DeepL API error (HTTP {}): {}", status, &body_text[..body_text.len().min(200)]).to_string(),
+                })
+            }
+        }
+        "libretranslate" => {
+            // LibreTranslate doesn't always require an API key, but if one is provided, test it
+            let url = "https://libretranslate.com/translate";
+
+            let client = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(10))
+                .build()
+                .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+
+            let body = serde_json::json!({
+                "q": "Hi",
+                "source": "auto",
+                "target": "es",
+                "api_key": api_key
+            });
+
+            let response = client
+                .post(url)
+                .json(&body)
+                .send()
+                .await
+                .map_err(|e| format!("Network error: {}", e))?;
+
+            let status = response.status().as_u16();
+            let body_text = response.text().await.unwrap_or_default();
+
+            if status == 200 {
+                Ok(TestApiKeyResult {
+                    success: true,
+                    message: "LibreTranslate API key is valid and working".to_string(),
+                })
+            } else {
+                Ok(TestApiKeyResult {
+                    success: false,
+                    message: format!("LibreTranslate API error (HTTP {}): {}", status, &body_text[..body_text.len().min(200)]).to_string(),
+                })
+            }
+        }
+        _ => {
+            Err(format!("Engine '{}' does not support API key testing", engine))
+        }
+    }
+}
+
+/// Result of API key test
+#[derive(serde::Serialize)]
+pub struct TestApiKeyResult {
+    pub success: bool,
+    pub message: String,
+}
+
 /// Get the stored screenshot from ScreenshotState (already captured, not a new capture)
 /// This eliminates the race condition of the start-freeze event
 /// Returns raw PNG bytes instead of base64 to avoid 33% encoding overhead

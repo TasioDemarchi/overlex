@@ -40,6 +40,8 @@ const apiKeyModalTitle = document.getElementById('api-key-modal-title');
 const apiKeyModalBody = document.getElementById('api-key-modal-body');
 const engineKeyStatus = document.getElementById('engine-key-status');
 const apiKeyGroup = document.getElementById('api-key-group');
+const testApiKeyBtn = document.getElementById('test-api-key-btn');
+const apiKeyTestStatus = document.getElementById('api-key-test-status');
 const historyExportJsonBtn = document.getElementById('history-export-json');
 const historyExportCsvBtn = document.getElementById('history-export-csv');
 const historyClearBtn = document.getElementById('history-clear');
@@ -852,6 +854,55 @@ async function checkEngineKeyStatus() {
 
 // Check status when engine changes
 engineSelect.addEventListener('change', checkEngineKeyStatus);
+
+// ============================================================
+// API Key Test Button
+// ============================================================
+
+testApiKeyBtn.addEventListener('click', async () => {
+    const engine = engineSelect.value;
+    const key = apiKeyInput.value.trim();
+
+    if (!key) {
+        apiKeyTestStatus.textContent = '✗ Enter an API key first';
+        apiKeyTestStatus.style.color = 'var(--error, #ff6b6b)';
+        return;
+    }
+
+    if (!ENGINES_NEEDING_KEY.includes(engine)) {
+        apiKeyTestStatus.textContent = 'ℹ This engine does not require an API key';
+        apiKeyTestStatus.style.color = 'var(--text-secondary)';
+        return;
+    }
+
+    // Disable button during test
+    testApiKeyBtn.disabled = true;
+    testApiKeyBtn.textContent = 'Testing...';
+    apiKeyTestStatus.textContent = 'Testing API key...';
+    apiKeyTestStatus.style.color = 'var(--text-secondary)';
+
+    try {
+        // Save the key first
+        await invoke('set_api_key', { engine, key });
+
+        // Test the key
+        const result = await invoke('test_api_key', { engine });
+
+        if (result.success) {
+            apiKeyTestStatus.textContent = `✓ ${result.message}`;
+            apiKeyTestStatus.style.color = 'var(--success, #51cf66)';
+        } else {
+            apiKeyTestStatus.textContent = `✗ ${result.message}`;
+            apiKeyTestStatus.style.color = 'var(--error, #ff6b6b)';
+        }
+    } catch (e) {
+        apiKeyTestStatus.textContent = `✗ Test failed: ${e}`;
+        apiKeyTestStatus.style.color = 'var(--error, #ff6b6b)';
+    } finally {
+        testApiKeyBtn.disabled = false;
+        testApiKeyBtn.textContent = 'Test Key';
+    }
+});
 
 // ============================================================
 // Log Viewer

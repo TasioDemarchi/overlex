@@ -402,7 +402,11 @@
 
         <div class="form-group" id="api-key-group">
             <label for="api-key">API Key</label>
-            <input type="password" id="api-key" placeholder="Enter API key" />
+            <div style="display: flex; gap: 8px; align-items: center;">
+                <input type="password" id="api-key" placeholder="Enter API key" style="flex: 1;" />
+                <button id="test-api-key-btn" type="button" class="small-btn" style="white-space: nowrap; flex-shrink: 0;">Test Key</button>
+            </div>
+            <small id="api-key-test-status" style="margin-top: 4px; display: block; font-size: 11px;"></small>
         </div>
     </div>
 

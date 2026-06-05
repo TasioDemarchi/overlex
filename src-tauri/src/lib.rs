@@ -551,6 +551,7 @@ pub fn run() {
             commands::get_api_key,
             commands::check_api_key,
             commands::set_api_key,
+            commands::test_api_key,
             commands::get_stored_screenshot,
             commands::drag_result_window_noactivate,
             commands::get_dpi_scale,
