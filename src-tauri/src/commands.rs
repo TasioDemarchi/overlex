@@ -225,6 +225,50 @@ fn default_true() -> bool {
     true
 }
 
+/// Helper struct for deserialization — breaks the infinite recursion cycle
+/// that would occur if we called serde_json::from_value<Settings> inside
+/// the custom Deserialize impl.
+#[derive(Debug, Deserialize)]
+#[serde(default)]
+struct SettingsRaw {
+    pub ocr_hotkey: String,
+    pub write_hotkey: String,
+    pub source_lang: String,
+    pub target_lang: String,
+    pub primary_engine: String,
+    pub enabled_engines: Vec<String>,
+    pub overlay_timeout_ms: u32,
+    pub overlay_position: String,
+    pub start_with_windows: bool,
+    pub ocr_preprocessing: bool,
+    pub ocr_binarize: bool,
+    pub history_enabled: bool,
+    pub profiles: Vec<GameProfile>,
+    pub show_debug: bool,
+}
+
+impl Default for SettingsRaw {
+    fn default() -> Self {
+        let s = Settings::default();
+        Self {
+            ocr_hotkey: s.ocr_hotkey,
+            write_hotkey: s.write_hotkey,
+            source_lang: s.source_lang,
+            target_lang: s.target_lang,
+            primary_engine: s.primary_engine,
+            enabled_engines: s.enabled_engines,
+            overlay_timeout_ms: s.overlay_timeout_ms,
+            overlay_position: s.overlay_position,
+            start_with_windows: s.start_with_windows,
+            ocr_preprocessing: s.ocr_preprocessing,
+            ocr_binarize: s.ocr_binarize,
+            history_enabled: s.history_enabled,
+            profiles: s.profiles,
+            show_debug: s.show_debug,
+        }
+    }
+}
+
 /// Custom Deserialize to handle backward compatibility with the old `engine` field.
 /// If `engine` is present but `primary_engine` is missing, migrate:
 ///   primary_engine = engine
@@ -242,16 +286,31 @@ impl<'de> Deserialize<'de> for Settings {
         let old_engine = value.get("engine").and_then(|v| v.as_str()).map(|s| s.to_string());
         let has_primary = value.get("primary_engine").is_some();
 
-        // Deserialize normally (ignoring the old `engine` field since it's not in the struct)
-        let mut settings: Settings = serde_json::from_value(value).map_err(D::Error::custom)?;
+        // Deserialize into SettingsRaw (has #[derive(Deserialize)], no recursion)
+        let raw: SettingsRaw = serde_json::from_value(value).map_err(D::Error::custom)?;
+
+        let mut settings = Settings {
+            ocr_hotkey: raw.ocr_hotkey,
+            write_hotkey: raw.write_hotkey,
+            source_lang: raw.source_lang,
+            target_lang: raw.target_lang,
+            primary_engine: raw.primary_engine,
+            enabled_engines: raw.enabled_engines,
+            overlay_timeout_ms: raw.overlay_timeout_ms,
+            overlay_position: raw.overlay_position,
+            start_with_windows: raw.start_with_windows,
+            ocr_preprocessing: raw.ocr_preprocessing,
+            ocr_binarize: raw.ocr_binarize,
+            history_enabled: raw.history_enabled,
+            profiles: raw.profiles,
+            show_debug: raw.show_debug,
+        };
 
         // Migrate old format
         if let Some(engine) = old_engine {
             if !has_primary {
-                // Old format: set primary_engine from the old `engine` field
                 settings.primary_engine = engine.clone();
             }
-            // Always ensure the old engine is in enabled_engines
             if !settings.enabled_engines.contains(&engine) {
                 settings.enabled_engines.push(engine);
             }
