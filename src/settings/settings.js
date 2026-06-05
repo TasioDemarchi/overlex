@@ -3,6 +3,9 @@
 const { invoke } = window.__TAURI__.core;
 const listen = window.__TAURI__?.event?.listen;
 
+// Engines that require an API key
+const ENGINES_NEEDING_KEY = ['gemini', 'deepl', 'libretranslate'];
+
 // DOM elements
 const ocrHotkeyInput = document.getElementById('ocr-hotkey');
 const writeHotkeyInput = document.getElementById('write-hotkey');
@@ -600,7 +603,7 @@ saveBtn.addEventListener('click', async () => {
     try {
         // Save API key FIRST (before settings), so the engine recreation
         // during save_settings can pick up the newly saved key from the credential store.
-        if (apiKeyInput.value && enginesNeedingKey.includes(engineSelect.value)) {
+        if (apiKeyInput.value && ENGINES_NEEDING_KEY.includes(engineSelect.value)) {
             await invoke('set_api_key', {
                 engine: engineSelect.value,
                 key: apiKeyInput.value
@@ -611,7 +614,7 @@ saveBtn.addEventListener('click', async () => {
         await invoke('save_settings', { settings });
 
         // Refresh key status display after saving
-        if (enginesNeedingKey.includes(engineSelect.value)) {
+        if (ENGINES_NEEDING_KEY.includes(engineSelect.value)) {
             await checkEngineKeyStatus();
         }
 
@@ -815,9 +818,8 @@ document.addEventListener('keydown', (e) => {
 // Check and display API key status for current engine
 async function checkEngineKeyStatus() {
     const engine = engineSelect.value;
-    const enginesNeedingKey = ['gemini', 'deepl', 'libretranslate'];
 
-    if (!enginesNeedingKey.includes(engine)) {
+    if (!ENGINES_NEEDING_KEY.includes(engine)) {
         // Hide API key field for engines that don't need it
         apiKeyGroup.style.display = 'none';
         apiKeyInput.value = '';
