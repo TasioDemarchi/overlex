@@ -181,12 +181,15 @@ pub fn register_hotkeys_with_swap(
             };
             if swap_ok.is_err() {
                 app_log!("Failed to register Swap hotkey (CTRL+SHIFT+LEFT) — may be in use by another application");
+                false
             } else {
                 app_log!("Swap hotkey registered: CTRL+SHIFT+LEFT (id={HOTKEY_ID_SWAP})");
+                true
             }
         } else {
             app_log!("Swap hotkey not configured (disabled)");
-        }
+            false
+        };
 
         app_log!(
             "Hotkeys registered: OCR (id={}), Write (id={}){}",
