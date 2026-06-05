@@ -4,7 +4,6 @@ mod deepl;
 mod deepseek;
 mod gemini;
 mod google_gtx;
-mod libretranslate;
 mod mymemory;
 
 use async_trait::async_trait;
@@ -14,7 +13,6 @@ pub use deepl::DeepLAdapter;
 pub use deepseek::DeepSeekAdapter;
 pub use gemini::GeminiAdapter;
 pub use google_gtx::GoogleGtxAdapter;
-pub use libretranslate::LibreTranslateAdapter;
 pub use mymemory::MyMemoryAdapter;
 
 use crate::commands::Settings;
@@ -76,8 +74,8 @@ impl std::fmt::Display for TranslationError {
 impl std::error::Error for TranslationError {}
 
 /// Create a translation engine based on settings.
-/// Supports: google_gtx (default, free), mymemory (free), libretranslate,
-/// gemini (requires API key), deepl (requires API key).
+/// Supports: google_gtx (default, free), mymemory (free),
+/// gemini (requires API key), deepl (requires API key), deepseek (requires API key).
 ///
 /// When `api_key_override` is provided, it is used instead of reading from
 /// the credential store. This allows `save_settings` to pass the key the
@@ -122,17 +120,6 @@ pub fn create_engine(settings: &Settings, api_key_override: Option<String>) -> B
         "mymemory" => {
             app_log!("[ENGINE] Using MyMemory (free, no API key)");
             Box::new(MyMemoryAdapter::new())
-        }
-        "libretranslate" => {
-            let api_key = api_key_override.or_else(|| crate::settings::get_api_key("libretranslate").ok());
-            app_log!(
-                "[ENGINE] Using LibreTranslate at {}",
-                settings.libre_translate_url
-            );
-            Box::new(LibreTranslateAdapter::new(
-                settings.libre_translate_url.clone(),
-                api_key,
-            ))
         }
         "google_gtx" | _ => {
             app_log!("[ENGINE] Using Google GTX (free, no API key)");

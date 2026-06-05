@@ -129,7 +129,7 @@ pub fn run() {
 
             // Initialize translation engine based on settings (dynamic factory)
             // All supported engines are free and require no registration:
-            // google_gtx (default), mymemory, libretranslate
+            // google_gtx (default), mymemory
             let engine: Arc<dyn TranslationEngine> = Arc::from(translation::create_engine(&settings, None));
             let translation_state = TranslationState {
                 engine: Arc::new(RwLock::new(engine)),

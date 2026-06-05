@@ -4,7 +4,7 @@ const { invoke } = window.__TAURI__.core;
 const listen = window.__TAURI__?.event?.listen;
 
 // Engines that require an API key
-const ENGINES_NEEDING_KEY = ['gemini', 'deepl', 'libretranslate', 'deepseek'];
+const ENGINES_NEEDING_KEY = ['gemini', 'deepl', 'deepseek'];
 
 // DOM elements
 const ocrHotkeyInput = document.getElementById('ocr-hotkey');
@@ -596,7 +596,6 @@ saveBtn.addEventListener('click', async () => {
             ? (parseInt(overlayTimeoutInput.value) || 5000)
             : 0,
         start_with_windows: startWithWindowsCheckbox.checked,
-        libre_translate_url: 'https://libretranslate.com', // Default URL
         // OCR pre-processing
         ocr_preprocessing: ocrPreprocessingCheckbox.checked,
         ocr_binarize: ocrBinarizeCheckbox.checked,
@@ -760,21 +759,6 @@ const API_KEY_HELP = {
             </ol>
             <div class="api-key-note">
                 <strong>Free tier includes:</strong> 500K characters/month. Translations are cached for consecutive identical texts.
-            </div>
-        `
-    },
-    libretranslate: {
-        title: 'Get LibreTranslate API Key',
-        content: `
-            <p>LibreTranslate requires running your own instance or using a public API with authentication.</p>
-            <ol>
-                <li>Option A: Use a public LibreTranslate server (may require API key)</li>
-                <li>Option B: Run your own <a href="https://github.com/LibreTranslate/LibreTranslate" target="_blank">LibreTranslate server</a></li>
-                <li>If using a public server, obtain the API key from that provider</li>
-                <li>Paste it here and click Save</li>
-            </ol>
-            <div class="api-key-note">
-                <strong>Note:</strong> LibreTranslate is open source. Running your own server gives you full control with no API costs.
             </div>
         `
     },

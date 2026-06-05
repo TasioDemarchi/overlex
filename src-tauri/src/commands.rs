@@ -195,7 +195,6 @@ pub struct Settings {
     pub overlay_timeout_ms: u32,
     pub overlay_position: String,
     pub start_with_windows: bool,
-    pub libre_translate_url: String,
     #[serde(default = "default_true")]
     pub ocr_preprocessing: bool,
     #[serde(default)]
@@ -223,7 +222,6 @@ impl Default for Settings {
             overlay_timeout_ms: 5000,
             overlay_position: "near-selection".to_string(),
             start_with_windows: false,
-            libre_translate_url: "https://libretranslate.com".to_string(),
             ocr_preprocessing: true,
             ocr_binarize: false,
             history_enabled: true,
@@ -357,7 +355,7 @@ pub async fn save_settings(
 
     // Step 4: Swap engine if needed (lock 4).
     let engine_changed = old_engine != effective_settings.engine;
-    let engine_requires_key = matches!(effective_settings.engine.as_str(), "gemini" | "deepl" | "libretranslate" | "deepseek");
+    let engine_requires_key = matches!(effective_settings.engine.as_str(), "gemini" | "deepl" | "deepseek");
     if engine_changed || engine_requires_key {
         let new_engine: Arc<dyn TranslationEngine> =
             Arc::from(crate::translation::create_engine(&effective_settings, api_key.clone()));
@@ -378,11 +376,14 @@ pub async fn save_settings(
         app_handle.clone(),
     )?;
 
-    // Emit settings-changed so overlays re-check show_debug
+    // Emit settings-changed so overlays re-check show_debug, engine, and languages
     let _ = app_handle.emit(
         "settings-changed",
         serde_json::json!({
             "show_debug": effective_settings.show_debug,
+            "engine": effective_settings.engine,
+            "source_lang": effective_settings.source_lang,
+            "target_lang": effective_settings.target_lang,
         }),
     );
 
@@ -1022,44 +1023,6 @@ pub async fn test_api_key(engine: String, key: String) -> Result<TestApiKeyResul
                 Ok(TestApiKeyResult {
                     success: false,
                     message: format!("DeepL API error (HTTP {}): {}", status, &body_text[..body_text.len().min(200)]).to_string(),
-                })
-            }
-        }
-        "libretranslate" => {
-            // LibreTranslate doesn't always require an API key, but if one is provided, test it
-            let url = "https://libretranslate.com/translate";
-
-            let client = reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(10))
-                .build()
-                .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
-
-            let body = serde_json::json!({
-                "q": "Hi",
-                "source": "auto",
-                "target": "es",
-                "api_key": key
-            });
-
-            let response = client
-                .post(url)
-                .json(&body)
-                .send()
-                .await
-                .map_err(|e| format!("Network error: {}", e))?;
-
-            let status = response.status().as_u16();
-            let body_text = response.text().await.unwrap_or_default();
-
-            if status == 200 {
-                Ok(TestApiKeyResult {
-                    success: true,
-                    message: "LibreTranslate API key is valid and working".to_string(),
-                })
-            } else {
-                Ok(TestApiKeyResult {
-                    success: false,
-                    message: format!("LibreTranslate API error (HTTP {}): {}", status, &body_text[..body_text.len().min(200)]).to_string(),
                 })
             }
         }
