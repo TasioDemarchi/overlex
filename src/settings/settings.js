@@ -846,7 +846,7 @@ async function checkEngineKeyStatus() {
             engineKeyStatus.style.color = 'var(--error, #ff6b6b)';
         }
     } catch (e) {
-        apiKeyInput.value = '';
+        // Don't clear the input - user might have typed a key that hasn't been saved yet
         engineKeyStatus.textContent = `✗ Error checking key: ${e}`;
         engineKeyStatus.style.color = 'var(--error, #ff6b6b)';
     }
@@ -882,13 +882,12 @@ testApiKeyBtn.addEventListener('click', async () => {
     apiKeyTestStatus.style.color = 'var(--text-secondary)';
 
     try {
-        // Save the key first
-        await invoke('set_api_key', { engine, key });
-
-        // Test the key
-        const result = await invoke('test_api_key', { engine });
+        // Test the key directly (no need to save first - backend receives key as parameter)
+        const result = await invoke('test_api_key', { engine, key });
 
         if (result.success) {
+            // Only save if test succeeds
+            await invoke('set_api_key', { engine, key });
             apiKeyTestStatus.textContent = `✓ ${result.message}`;
             apiKeyTestStatus.style.color = 'var(--success, #51cf66)';
         } else {

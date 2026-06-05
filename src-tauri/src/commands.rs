@@ -909,20 +909,21 @@ pub async fn set_api_key(engine: String, key: String) -> Result<(), String> {
 }
 
 /// Test API key by making a minimal request to the engine's API
+/// Receives the key directly (not from storage) to avoid race conditions
 #[tauri::command]
-pub async fn test_api_key(engine: String) -> Result<TestApiKeyResult, String> {
-    use crate::translation::TranslationEngine;
-
-    let api_key = crate::settings::get_api_key(&engine)
-        .map_err(|e| format!("Failed to retrieve API key: {}", e))?;
+pub async fn test_api_key(engine: String, key: String) -> Result<TestApiKeyResult, String> {
+    if key.is_empty() {
+        return Ok(TestApiKeyResult {
+            success: false,
+            message: "API key is empty".to_string(),
+        });
+    }
 
     match engine.as_str() {
         "gemini" => {
             // Test Gemini API with a minimal request
-            let url = format!(
-                "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={}",
-                api_key
-            );
+            // Use header authentication (official Google method)
+            let url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
 
             let client = reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(10))
@@ -936,7 +937,8 @@ pub async fn test_api_key(engine: String) -> Result<TestApiKeyResult, String> {
             });
 
             let response = client
-                .post(&url)
+                .post(url)
+                .header("x-goog-api-key", &key)
                 .json(&body)
                 .send()
                 .await
@@ -993,7 +995,7 @@ pub async fn test_api_key(engine: String) -> Result<TestApiKeyResult, String> {
             let response = client
                 .post(url)
                 .form(&[
-                    ("auth_key", api_key.as_str()),
+                    ("auth_key", key.as_str()),
                     ("text", "Hi"),
                     ("target_lang", "ES"),
                 ])
@@ -1034,7 +1036,7 @@ pub async fn test_api_key(engine: String) -> Result<TestApiKeyResult, String> {
                 "q": "Hi",
                 "source": "auto",
                 "target": "es",
-                "api_key": api_key
+                "api_key": key
             });
 
             let response = client

@@ -119,10 +119,7 @@ impl TranslationEngine for GeminiAdapter {
 
         let system_instruction = Self::build_system_instruction(source, target, context);
 
-        let url = format!(
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={}",
-            api_key
-        );
+        let url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
 
         let body = json!({
             "systemInstruction": {
@@ -138,7 +135,8 @@ impl TranslationEngine for GeminiAdapter {
 
         let response = self
             .client
-            .post(&url)
+            .post(url)
+            .header("x-goog-api-key", api_key)
             .json(&body)
             .send()
             .await
