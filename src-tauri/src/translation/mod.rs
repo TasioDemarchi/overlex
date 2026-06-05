@@ -82,7 +82,13 @@ pub fn create_engine(settings: &Settings) -> Box<dyn TranslationEngine> {
             let api_key = crate::settings::get_api_key("gemini").ok();
             app_log!(
                 "[ENGINE] Using Gemini 2.0 Flash (API key: {})",
-                if api_key.is_some() { "yes" } else { "no" }
+                match &api_key {
+                    Some(k) => {
+                        // Log key prefix and length for debugging (never log full key)
+                        format!("present ({} chars, starts with {}...)", k.len(), &k[..k.len().min(8)])
+                    }
+                    None => "NOT FOUND — save the API key in Settings first".to_string(),
+                }
             );
             Box::new(GeminiAdapter::new(api_key))
         }
@@ -90,7 +96,10 @@ pub fn create_engine(settings: &Settings) -> Box<dyn TranslationEngine> {
             let api_key = crate::settings::get_api_key("deepl").ok();
             app_log!(
                 "[ENGINE] Using DeepL Free (API key: {})",
-                if api_key.is_some() { "yes" } else { "no" }
+                match &api_key {
+                    Some(k) => format!("present ({} chars)", k.len()),
+                    None => "NOT FOUND".to_string(),
+                }
             );
             Box::new(DeepLAdapter::new(api_key))
         }

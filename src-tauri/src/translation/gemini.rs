@@ -164,6 +164,8 @@ impl TranslationEngine for GeminiAdapter {
             let status_code = status.as_u16();
             let body_text = response.text().await.unwrap_or_default();
 
+            app_log!("[GEMINI] API error HTTP {}: {}", status_code, &body_text[..body_text.len().min(200)]);
+
             // 400 with auth-related errors → InvalidApiKey
             if status_code == 400
                 && (body_text.contains("API key")
@@ -174,7 +176,21 @@ impl TranslationEngine for GeminiAdapter {
                 return Err(TranslationError::InvalidApiKey);
             }
 
+            // 403 — could be invalid key OR billing not enabled
             if status_code == 403 {
+                // Check if it's a billing issue (specific Google error messages)
+                if body_text.contains("billing")
+                    || body_text.contains("BILLING")
+                    || body_text.contains("quota")
+                    || body_text.contains("QUOTA")
+                    || body_text.contains("Cloud billing")
+                    || body_text.contains("project billing")
+                {
+                    return Err(TranslationError::Network(format!(
+                        "Gemini API billing required. Enable billing in your Google Cloud project. Details: {}",
+                        &body_text[..body_text.len().min(300)]
+                    )));
+                }
                 return Err(TranslationError::InvalidApiKey);
             }
 

@@ -598,17 +598,20 @@ saveBtn.addEventListener('click', async () => {
     }
 
     try {
-        // Save settings (this validates hotkeys on the backend)
-        await invoke('save_settings', { settings });
-
-        // Also save API key separately if provided
-        // Use current dropdown value, not the loaded settings object
-        if (apiKeyInput.value) {
+        // Save API key FIRST (before settings), so the engine recreation
+        // during save_settings can pick up the newly saved key from the credential store.
+        if (apiKeyInput.value && enginesNeedingKey.includes(engineSelect.value)) {
             await invoke('set_api_key', {
                 engine: engineSelect.value,
                 key: apiKeyInput.value
             });
-            // Refresh key status display after saving
+        }
+
+        // Save settings (validates hotkeys + recreates engine with the saved key)
+        await invoke('save_settings', { settings });
+
+        // Refresh key status display after saving
+        if (enginesNeedingKey.includes(engineSelect.value)) {
             await checkEngineKeyStatus();
         }
 
