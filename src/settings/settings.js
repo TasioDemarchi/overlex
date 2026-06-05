@@ -4,7 +4,7 @@ const { invoke } = window.__TAURI__.core;
 const listen = window.__TAURI__?.event?.listen;
 
 // Engines that require an API key
-const ENGINES_NEEDING_KEY = ['gemini', 'deepl', 'libretranslate'];
+const ENGINES_NEEDING_KEY = ['gemini', 'deepl', 'libretranslate', 'deepseek'];
 
 // DOM elements
 const ocrHotkeyInput = document.getElementById('ocr-hotkey');
@@ -793,6 +793,22 @@ const API_KEY_HELP = {
             <p>MyMemory offers 5,000 characters/day free without registration (or 50,000/day with email).</p>
             <div class="api-key-note">
                 <strong>How it works:</strong> Free machine translation service. No API key needed. Daily limit resets at midnight (UTC).
+            </div>
+        `
+    },
+    deepseek: {
+        title: 'Get DeepSeek API Key',
+        content: `
+            <p>DeepSeek uses a prepaid balance system with very affordable pricing.</p>
+            <ol>
+                <li>Go to <a href="https://platform.deepseek.com" target="_blank">platform.deepseek.com</a></li>
+                <li>Sign up or log in</li>
+                <li>Navigate to API Keys section</li>
+                <li>Create a new API key</li>
+                <li>Copy and paste the key here</li>
+            </ol>
+            <div class="api-key-note">
+                <strong>Note:</strong> DeepSeek uses a prepaid balance system. You need to add credits to your account (minimum ~$2 USD). The API is very affordable — $2 can handle thousands of translations.
             </div>
         `
     }

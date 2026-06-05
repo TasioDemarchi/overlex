@@ -357,7 +357,7 @@ pub async fn save_settings(
 
     // Step 4: Swap engine if needed (lock 4).
     let engine_changed = old_engine != effective_settings.engine;
-    let engine_requires_key = matches!(effective_settings.engine.as_str(), "gemini" | "deepl" | "libretranslate");
+    let engine_requires_key = matches!(effective_settings.engine.as_str(), "gemini" | "deepl" | "libretranslate" | "deepseek");
     if engine_changed || engine_requires_key {
         let new_engine: Arc<dyn TranslationEngine> =
             Arc::from(crate::translation::create_engine(&effective_settings, api_key.clone()));
@@ -1061,6 +1061,49 @@ pub async fn test_api_key(engine: String, key: String) -> Result<TestApiKeyResul
                     success: false,
                     message: format!("LibreTranslate API error (HTTP {}): {}", status, &body_text[..body_text.len().min(200)]).to_string(),
                 })
+            }
+        }
+        "deepseek" => {
+            let url = "https://api.deepseek.com/chat/completions";
+
+            let client = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(10))
+                .build()
+                .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+
+            let body = serde_json::json!({
+                "model": "deepseek-v4-flash",
+                "messages": [{"role": "user", "content": "Hi"}],
+                "max_tokens": 10
+            });
+
+            let response = client
+                .post(url)
+                .header("Authorization", format!("Bearer {}", key))
+                .header("Content-Type", "application/json")
+                .json(&body)
+                .send()
+                .await
+                .map_err(|e| format!("Network error: {}", e))?;
+
+            let status = response.status();
+            if status.is_success() {
+                Ok(TestApiKeyResult {
+                    success: true,
+                    message: "DeepSeek API key is valid and working".to_string(),
+                })
+            } else {
+                let body = response.text().await.unwrap_or_default();
+                match status.as_u16() {
+                    401 | 403 => Ok(TestApiKeyResult {
+                        success: false,
+                        message: "Invalid API key. Check your key at platform.deepseek.com".to_string(),
+                    }),
+                    _ => Ok(TestApiKeyResult {
+                        success: false,
+                        message: format!("Error: {} - {}", status, body),
+                    }),
+                }
             }
         }
         _ => {

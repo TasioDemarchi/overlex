@@ -1,6 +1,7 @@
 // Translation module - translation engine trait and adapters
 
 mod deepl;
+mod deepseek;
 mod gemini;
 mod google_gtx;
 mod libretranslate;
@@ -10,6 +11,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 pub use deepl::DeepLAdapter;
+pub use deepseek::DeepSeekAdapter;
 pub use gemini::GeminiAdapter;
 pub use google_gtx::GoogleGtxAdapter;
 pub use libretranslate::LibreTranslateAdapter;
@@ -105,6 +107,17 @@ pub fn create_engine(settings: &Settings, api_key_override: Option<String>) -> B
                 }
             );
             Box::new(DeepLAdapter::new(api_key))
+        }
+        "deepseek" => {
+            let api_key = api_key_override.or_else(|| crate::settings::get_api_key("deepseek").ok());
+            app_log!(
+                "[ENGINE] Creating DeepSeek v4 Flash engine (API key: {})",
+                match &api_key {
+                    Some(k) => format!("present ({} chars, starts with {}...)", k.len(), &k[..k.len().min(8)]),
+                    None => "NOT FOUND — save the API key in Settings first".to_string(),
+                }
+            );
+            Box::new(DeepSeekAdapter::new(api_key))
         }
         "mymemory" => {
             app_log!("[ENGINE] Using MyMemory (free, no API key)");
@@ -205,6 +218,17 @@ mod tests {
         };
         let engine = create_engine(&settings, None);
         assert_eq!(engine.name(), "DeepL");
+        assert!(engine.requires_api_key());
+    }
+
+    #[test]
+    fn test_create_engine_deepseek() {
+        let settings = Settings {
+            engine: "deepseek".to_string(),
+            ..Settings::default()
+        };
+        let engine = create_engine(&settings, None);
+        assert_eq!(engine.name(), "DeepSeek");
         assert!(engine.requires_api_key());
     }
 }
