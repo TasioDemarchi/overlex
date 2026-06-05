@@ -923,7 +923,7 @@ pub async fn test_api_key(engine: String, key: String) -> Result<TestApiKeyResul
         "gemini" => {
             // Test Gemini API with a minimal request
             // Use header authentication (official Google method)
-            let url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
+            let url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
 
             let client = reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(10))

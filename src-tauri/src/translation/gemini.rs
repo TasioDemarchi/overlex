@@ -119,7 +119,7 @@ impl TranslationEngine for GeminiAdapter {
 
         let system_instruction = Self::build_system_instruction(source, target, context);
 
-        let url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
+        let url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
 
         let body = json!({
             "systemInstruction": {
