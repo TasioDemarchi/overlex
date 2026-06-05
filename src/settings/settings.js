@@ -507,8 +507,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         sourceLangSelect.value = settings.source_lang || 'auto';
         targetLangSelect.value = settings.target_lang || 'es';
         engineSelect.value = settings.engine || 'google_gtx';
-        // Check API key status for the loaded engine
-        await checkEngineKeyStatus();
+        // Check API key status for the loaded engine (don't await to avoid blocking settings load)
+        checkEngineKeyStatus().catch(e => console.warn('checkEngineKeyStatus failed:', e));
         overlayPositionSelect.value = settings.overlay_position || 'near-selection';
 
         // Handle auto-dismiss: if timeout > 0, check and show; if 0, uncheck and hide
@@ -536,18 +536,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Load history if enabled
         if (historyEnabledCheckbox.checked) {
             renderHistory();
-        }
-
-        // Load API key (if any) for the current engine selection
-        try {
-            const key = await invoke('get_api_key', { engine: engineSelect.value });
-            if (key) {
-                apiKeyInput.value = key;
-            } else {
-                apiKeyInput.value = '';
-            }
-        } catch {
-            // No API key stored, leave empty
         }
     } catch (e) {
         console.error('Failed to load settings:', e);
