@@ -114,6 +114,9 @@ window.onTranslationResult = function(payload) {
         errorEl.style.display = 'none';
         translatedEl.style.display = 'block';
         originalSection.style.display = 'block';
+
+        // Show engine used indicator
+        updateEngineUsedIndicator(payload.engine_used, payload.fallback);
     }
 };
 
@@ -125,6 +128,33 @@ window.onOverlexError = function(payload) {
     translatedEl.style.display = 'none';
     originalSection.style.display = 'none';
 };
+
+// Engine name mapping (same as settings)
+const ENGINE_LABELS = {
+    google_gtx: 'Google Translate',
+    mymemory: 'MyMemory',
+    gemini: 'Gemini',
+    deepl: 'DeepL',
+    deepseek: 'DeepSeek',
+};
+
+function updateEngineUsedIndicator(engineUsed, fallback) {
+    const engineEl = document.getElementById('engine-used');
+    if (!engineEl) return;
+    if (!engineUsed) {
+        engineEl.style.display = 'none';
+        return;
+    }
+    engineEl.style.display = 'block';
+    const displayName = ENGINE_LABELS[engineUsed] || engineUsed;
+    if (fallback) {
+        engineEl.textContent = `${displayName} (fallback)`;
+        engineEl.style.color = '#ffa94d'; // orange warning
+    } else {
+        engineEl.textContent = displayName;
+        engineEl.style.color = '#888'; // subtle gray for normal
+    }
+}
 
 // Fallback: also try Tauri event listeners (wrapped safely)
 try {
@@ -150,7 +180,7 @@ let __currentEngine = '—';
     try {
         const settings = await window.__TAURI__?.core?.invoke('get_settings');
         if (settings) {
-            __currentEngine = settings.engine || '—';
+            __currentEngine = ENGINE_LABELS[settings.primary_engine] || settings.primary_engine || '—';
             if (settings.show_debug) {
                 const debugEl = document.getElementById('debug-line');
                 if (debugEl) debugEl.classList.add('visible');
@@ -186,8 +216,8 @@ let __currentEngine = '—';
                 const payload = event.payload;
                 if (!payload) return;
                 // Update engine if it changed
-                if (payload.engine) {
-                    __currentEngine = payload.engine;
+                if (payload.primary_engine) {
+                    __currentEngine = ENGINE_LABELS[payload.primary_engine] || payload.primary_engine;
                 }
                 // Update language display if source_lang or target_lang changed
                 if (payload.source_lang || payload.target_lang) {

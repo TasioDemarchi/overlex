@@ -152,6 +152,8 @@ impl TranslationEngine for MyMemoryAdapter {
                         original: text.to_string(),
                         translated: translated_clean,
                         detected_source: None,
+                        engine_used: self.name().to_string(),
+                        fallback: false,
                     })
                 } else {
                     Err(TranslationError::Network(format!(

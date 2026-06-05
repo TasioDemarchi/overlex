@@ -386,27 +386,57 @@
         </div>
 
         <div class="form-group">
-            <label for="engine">Translation Engine</label>
+            <label>Translation Engines</label>
+            <div id="engine-checkboxes" style="margin-bottom: 10px;">
+                <!-- Paid engines rendered by JS -->
+            </div>
+            <small style="color: var(--text-secondary); display: block; margin-bottom: 8px;">
+                Free engines (Google Translate, MyMemory) are always enabled.
+            </small>
+        </div>
+
+        <div class="form-group">
+            <label for="primary-engine">Primary Engine</label>
             <div style="display: flex; gap: 8px; align-items: center;">
-                <select id="engine" style="flex: 1;">
-                    <option value="google_gtx">Google GTX (Free)</option>
-                    <option value="mymemory">MyMemory (Free)</option>
-                    <option value="gemini">Gemini 2.0 Flash (Requires API Key)</option>
-                    <option value="deepl">DeepL Free (Requires API Key)</option>
-                    <option value="deepseek">DeepSeek v4 Flash (Requires API Key)</option>
+                <select id="primary-engine" style="flex: 1;">
+                    <!-- Populated dynamically by JS -->
                 </select>
                 <button id="engine-help-btn" type="button" title="How to get API key" style="background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 4px; color: var(--text-secondary); cursor: pointer; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0;">?</button>
             </div>
-            <small id="engine-key-status" style="margin-top: 4px; display: block; font-size: 11px;"></small>
         </div>
 
-        <div class="form-group" id="api-key-group">
-            <label for="api-key">API Key</label>
-            <div style="display: flex; gap: 8px; align-items: center;">
-                <input type="password" id="api-key" placeholder="Enter API key" style="flex: 1;" />
-                <button id="test-api-key-btn" type="button" class="small-btn" style="white-space: nowrap; flex-shrink: 0;">Test Key</button>
+        <!-- Per-engine API key sections (hidden by default, shown when checkbox toggled) -->
+        <div class="engine-api-key" data-engine="gemini" style="display:none;">
+            <div class="form-group">
+                <label for="api-key-gemini">Gemini API Key</label>
+                <div class="api-key-input-row" style="display: flex; gap: 8px; align-items: center;">
+                    <input type="password" id="api-key-gemini" placeholder="Enter Gemini API key" style="flex: 1;" />
+                    <button class="test-key-btn small-btn" data-engine="gemini" style="white-space: nowrap; flex-shrink: 0;">Test Key</button>
+                </div>
+                <small id="api-key-status-gemini" style="margin-top: 4px; display: block; font-size: 11px;"></small>
             </div>
-            <small id="api-key-test-status" style="margin-top: 4px; display: block; font-size: 11px;"></small>
+        </div>
+
+        <div class="engine-api-key" data-engine="deepl" style="display:none;">
+            <div class="form-group">
+                <label for="api-key-deepl">DeepL API Key</label>
+                <div class="api-key-input-row" style="display: flex; gap: 8px; align-items: center;">
+                    <input type="password" id="api-key-deepl" placeholder="Enter DeepL API key" style="flex: 1;" />
+                    <button class="test-key-btn small-btn" data-engine="deepl" style="white-space: nowrap; flex-shrink: 0;">Test Key</button>
+                </div>
+                <small id="api-key-status-deepl" style="margin-top: 4px; display: block; font-size: 11px;"></small>
+            </div>
+        </div>
+
+        <div class="engine-api-key" data-engine="deepseek" style="display:none;">
+            <div class="form-group">
+                <label for="api-key-deepseek">DeepSeek API Key</label>
+                <div class="api-key-input-row" style="display: flex; gap: 8px; align-items: center;">
+                    <input type="password" id="api-key-deepseek" placeholder="Enter DeepSeek API key" style="flex: 1;" />
+                    <button class="test-key-btn small-btn" data-engine="deepseek" style="white-space: nowrap; flex-shrink: 0;">Test Key</button>
+                </div>
+                <small id="api-key-status-deepseek" style="margin-top: 4px; display: block; font-size: 11px;"></small>
+            </div>
         </div>
     </div>
 
@@ -525,11 +555,11 @@
                 <label for="profile-engine">Translation Engine</label>
                 <select id="profile-engine">
                     <option value="">Use default</option>
-                    <option value="google_gtx">Google GTX (Free)</option>
+                    <option value="google_gtx">Google Translate (Free)</option>
                     <option value="mymemory">MyMemory (Free)</option>
-                    <option value="gemini">Gemini 2.0 Flash (Requires API Key)</option>
-                    <option value="deepl">DeepL Free (Requires API Key)</option>
-                    <option value="deepseek">DeepSeek v4 Flash (Requires API Key)</option>
+                    <option value="gemini">Gemini (Requires API Key)</option>
+                    <option value="deepl">DeepL (Requires API Key)</option>
+                    <option value="deepseek">DeepSeek (Requires API Key)</option>
                 </select>
             </div>
             <div class="form-group">

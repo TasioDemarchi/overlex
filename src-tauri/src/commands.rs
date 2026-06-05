@@ -177,21 +177,27 @@ pub struct GameProfile {
     pub source_lang: Option<String>,
     #[serde(default)]
     pub target_lang: Option<String>,
-    #[serde(default)]
-    pub engine: Option<String>,
+    /// Primary translation engine override. Accepts "engine" as alias for backward compat.
+    #[serde(default, alias = "engine")]
+    pub primary_engine: Option<String>,
     #[serde(default)]
     pub ocr_preprocessing: Option<bool>,
     #[serde(default)]
     pub ocr_binarize: Option<bool>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Clone)]
 pub struct Settings {
     pub ocr_hotkey: String,
     pub write_hotkey: String,
     pub source_lang: String,
     pub target_lang: String,
-    pub engine: String,
+    /// Primary translation engine (must be in enabled_engines)
+    #[serde(default = "default_primary_engine")]
+    pub primary_engine: String,
+    /// All enabled engines (free engines always included)
+    #[serde(default = "default_enabled_engines")]
+    pub enabled_engines: Vec<String>,
     pub overlay_timeout_ms: u32,
     pub overlay_position: String,
     pub start_with_windows: bool,
@@ -207,8 +213,52 @@ pub struct Settings {
     pub show_debug: bool,
 }
 
+fn default_primary_engine() -> String {
+    "google_gtx".to_string()
+}
+
+fn default_enabled_engines() -> Vec<String> {
+    vec!["google_gtx".to_string(), "mymemory".to_string()]
+}
+
 fn default_true() -> bool {
     true
+}
+
+/// Custom Deserialize to handle backward compatibility with the old `engine` field.
+/// If `engine` is present but `primary_engine` is missing, migrate:
+///   primary_engine = engine
+///   enabled_engines = ["google_gtx", "mymemory", engine]
+impl<'de> Deserialize<'de> for Settings {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de::Error;
+
+        let value = serde_json::Value::deserialize(deserializer)?;
+
+        // Detect old format
+        let old_engine = value.get("engine").and_then(|v| v.as_str()).map(|s| s.to_string());
+        let has_primary = value.get("primary_engine").is_some();
+
+        // Deserialize normally (ignoring the old `engine` field since it's not in the struct)
+        let mut settings: Settings = serde_json::from_value(value).map_err(D::Error::custom)?;
+
+        // Migrate old format
+        if let Some(engine) = old_engine {
+            if !has_primary {
+                // Old format: set primary_engine from the old `engine` field
+                settings.primary_engine = engine.clone();
+            }
+            // Always ensure the old engine is in enabled_engines
+            if !settings.enabled_engines.contains(&engine) {
+                settings.enabled_engines.push(engine);
+            }
+        }
+
+        Ok(settings)
+    }
 }
 
 impl Default for Settings {
@@ -218,7 +268,8 @@ impl Default for Settings {
             write_hotkey: "CTRL+SHIFT+W".to_string(),
             source_lang: "auto".to_string(),
             target_lang: "es".to_string(),
-            engine: "google_gtx".to_string(),
+            primary_engine: default_primary_engine(),
+            enabled_engines: default_enabled_engines(),
             overlay_timeout_ms: 5000,
             overlay_position: "near-selection".to_string(),
             start_with_windows: false,
@@ -243,6 +294,8 @@ pub struct TranslationResult {
     pub original: String,
     pub translated: String,
     pub detected_source: Option<String>,
+    pub engine_used: String,
+    pub fallback: bool,
 }
 
 /// Swap source and target languages
@@ -299,31 +352,36 @@ pub async fn get_settings(
 #[tauri::command]
 pub async fn save_settings(
     settings: Settings,
-    api_key: Option<String>,
+    api_keys: std::collections::HashMap<String, String>,
     settings_state: tauri::State<'_, SettingsState>,
     active_game_state: tauri::State<'_, ActiveGameState>,
     hotkey_state: tauri::State<'_, std::sync::Mutex<crate::hotkeys::HotkeyState>>,
     translation_state: tauri::State<'_, TranslationState>,
     app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
-    app_log!("[SETTINGS] Saving settings, api_key provided: {}", api_key.is_some());
+    app_log!("[SETTINGS] Saving settings, api_keys provided: {}", api_keys.len());
+
     // Validate hotkeys
     settings::validate_hotkeys(&settings)?;
 
+    // Normalize settings before saving
+    let mut normalized_settings = settings.clone();
+    settings::normalize_settings(&mut normalized_settings);
+
     // Save to disk (persist the raw settings from the frontend)
-    settings::save_settings_to_disk(&settings)?;
+    settings::save_settings_to_disk(&normalized_settings)?;
 
     // Determine effective settings: apply profile overrides if a profile is active.
-    // Lock order: settings(1) → saved_defaults(2) → active_game.info(3) → engine(4).
+    // Lock order: settings(1) → saved_defaults(2) → active_game.info(3) → engines/chain(4).
     //
-    // Step 1: Read current engine from active settings (lock 1).
-    let old_engine = settings_state.settings.lock().unwrap().engine.clone();
+    // Step 1: Read current primary from active settings (lock 1).
+    let old_primary = settings_state.settings.lock().unwrap().primary_engine.clone();
 
     // Step 2: Update saved_defaults (lock 2), check active profile (lock 3),
     //          and compute the effective settings.
     let effective_settings: Settings = {
         let mut saved = settings_state.saved_defaults.lock().unwrap();
-        *saved = settings.clone();
+        *saved = normalized_settings.clone();
 
         let active_profile_name = {
             let info = active_game_state.info.lock().unwrap();
@@ -353,17 +411,28 @@ pub async fn save_settings(
     // Step 3: Update active settings (lock 1).
     *settings_state.settings.lock().unwrap() = effective_settings.clone();
 
-    // Step 4: Swap engine if needed (lock 4).
-    let engine_changed = old_engine != effective_settings.engine;
-    let engine_requires_key = matches!(effective_settings.engine.as_str(), "gemini" | "deepl" | "deepseek");
-    if engine_changed || engine_requires_key {
-        let new_engine: Arc<dyn TranslationEngine> =
-            Arc::from(crate::translation::create_engine(&effective_settings, api_key.clone()));
-        let mut engine_guard = translation_state.engine.write().unwrap();
-        *engine_guard = new_engine;
+    // Step 4: Rebuild engines HashMap and TranslationChain from saved config (lock 4).
+    {
+        let enabled = normalized_settings.enabled_engines.clone();
+        let new_engines = crate::translation::create_all_engines(&enabled, &api_keys);
+        let new_chain = crate::translation::TranslationChain::new(
+            &normalized_settings.primary_engine,
+            new_engines.clone(),
+            &enabled,
+        );
+
+        {
+            let mut engines_guard = translation_state.engines.write().unwrap();
+            *engines_guard = new_engines;
+        }
+        {
+            let mut chain_guard = translation_state.chain.write().unwrap();
+            *chain_guard = std::sync::Arc::new(new_chain);
+        }
+
         app_log!(
-            "[SETTINGS] Translation engine swapped to: {}",
-            effective_settings.engine
+            "[SETTINGS] Engine chain rebuilt: primary={}, enabled={:?}",
+            normalized_settings.primary_engine, enabled
         );
     }
 
@@ -381,15 +450,16 @@ pub async fn save_settings(
         "settings-changed",
         serde_json::json!({
             "show_debug": effective_settings.show_debug,
-            "engine": effective_settings.engine,
+            "primary_engine": effective_settings.primary_engine,
+            "enabled_engines": effective_settings.enabled_engines,
             "source_lang": effective_settings.source_lang,
             "target_lang": effective_settings.target_lang,
         }),
     );
 
     app_log!(
-        "[SETTINGS] Saved. effective engine={}, show_debug={}",
-        effective_settings.engine, effective_settings.show_debug
+        "[SETTINGS] Saved. effective primary_engine={}, show_debug={}",
+        effective_settings.primary_engine, effective_settings.show_debug
     );
 
     Ok(())
@@ -421,9 +491,9 @@ pub async fn translate_text(
         }
     };
 
-    // Call translation engine (acquire read lock, clone Arc, release lock before async call)
-    let engine = translation_state.engine.read().unwrap().clone();
-    let result = match engine
+    // Call translation chain (acquire read lock, clone Arc, release lock before async call)
+    let chain = translation_state.chain.read().unwrap().clone();
+    let result = match chain
         .translate(
             &text,
             &settings.source_lang,
@@ -441,8 +511,7 @@ pub async fn translate_text(
                         ErrorPayload {
                             code: "INVALID_API_KEY".to_string(),
                             message: format!(
-                                "API key required for {} engine. Set it in Settings.",
-                                engine.name()
+                                "API key required for the translation engine. Set it in Settings.",
                             ),
                         },
                         true,
@@ -468,8 +537,10 @@ pub async fn translate_text(
 
     let translated_result = TranslationResult {
         original: text.clone(),
-        translated: result.translated,
-        detected_source: result.detected_source,
+        translated: result.translated.clone(),
+        detected_source: result.detected_source.clone(),
+        engine_used: result.engine_used.clone(),
+        fallback: result.fallback,
     };
 
     // Create payload BEFORE getting the window
@@ -480,6 +551,8 @@ pub async fn translate_text(
         timeout_ms: settings.overlay_timeout_ms,
         source_lang: settings.source_lang.clone(),
         target_lang: settings.target_lang.clone(),
+        engine_used: result.engine_used.clone(),
+        fallback: result.fallback,
     };
 
     // Show result window and emit directly to it
@@ -509,13 +582,14 @@ pub async fn translate_text(
 
     // Save to history (fire-and-forget if enabled)
     if settings.history_enabled {
+        let engine_used = translated_result.engine_used.clone();
         let entry = history::HistoryEntry {
             id: 0,
             original_text: translated_result.original.clone(),
             translated_text: translated_result.translated.clone(),
             source_lang: settings.source_lang.clone(),
             target_lang: settings.target_lang.clone(),
-            engine: settings.engine.clone(),
+            engine: engine_used,
             created_at: String::new(),
         };
         let _ = tokio::task::spawn_blocking(move || {
@@ -640,6 +714,8 @@ pub async fn ocr_capture_region(
             timeout_ms: settings.overlay_timeout_ms,
             source_lang: settings.source_lang.clone(),
             target_lang: settings.target_lang.clone(),
+            engine_used: String::new(),
+            fallback: false,
         };
 
         emit_result(&app_handle, &error_payload, true);
@@ -674,9 +750,9 @@ pub async fn ocr_capture_region(
         }
     };
 
-    // 7. Translate (acquire read lock, clone Arc, release lock before async call)
-    let engine = translation_state.engine.read().unwrap().clone();
-    let translation_result = match engine
+    // 7. Translate via chain (acquire read lock, clone Arc, release lock before async call)
+    let chain = translation_state.chain.read().unwrap().clone();
+    let translation_result = match chain
         .translate(
             &original_text,
             &settings.source_lang,
@@ -694,8 +770,7 @@ pub async fn ocr_capture_region(
                         ErrorPayload {
                             code: "INVALID_API_KEY".to_string(),
                             message: format!(
-                                "API key required for {} engine. Set it in Settings.",
-                                engine.name()
+                                "API key required for the translation engine. Set it in Settings.",
                             ),
                         },
                         true,
@@ -721,13 +796,14 @@ pub async fn ocr_capture_region(
 
     // 7. Save to history (fire-and-forget if enabled)
     if settings.history_enabled {
+        let engine_used = translation_result.engine_used.clone();
         let entry = history::HistoryEntry {
             id: 0,
             original_text: original_text.clone(),
             translated_text: translation_result.translated.clone(),
             source_lang: settings.source_lang.clone(),
             target_lang: settings.target_lang.clone(),
-            engine: settings.engine.clone(),
+            engine: engine_used,
             created_at: String::new(), // DB sets this via DEFAULT
         };
         let _ = tokio::task::spawn_blocking(move || {
@@ -745,6 +821,8 @@ pub async fn ocr_capture_region(
         timeout_ms: settings.overlay_timeout_ms,
         source_lang: settings.source_lang.clone(),
         target_lang: settings.target_lang.clone(),
+        engine_used: translation_result.engine_used.clone(),
+        fallback: translation_result.fallback,
     };
 
     // Show result window and emit directly to it
@@ -762,6 +840,8 @@ pub async fn ocr_capture_region(
         original: original_text,
         translated: translation_result.translated,
         detected_source: translation_result.detected_source,
+        engine_used: translation_result.engine_used,
+        fallback: translation_result.fallback,
     })
 }
 
@@ -790,9 +870,9 @@ pub async fn translate_chat(
         }
     };
 
-    // Call translation engine (acquire read lock, clone Arc, release lock before async call)
-    let engine = translation_state.engine.read().unwrap().clone();
-    let result = engine
+    // Call translation chain (acquire read lock, clone Arc, release lock before async call)
+    let chain = translation_state.chain.read().unwrap().clone();
+    let result = chain
         .translate(
             &text,
             &settings.source_lang,
@@ -806,10 +886,7 @@ pub async fn translate_chat(
                     &app_handle,
                     ErrorPayload {
                         code: "INVALID_API_KEY".to_string(),
-                        message: format!(
-                            "API key required for {} engine. Set it in Settings.",
-                            engine.name()
-                        ),
+                        message: "API key required for the translation engine. Set it in Settings.".to_string(),
                     },
                     true,
                 );
@@ -817,21 +894,25 @@ pub async fn translate_chat(
             e.to_string()
         })?;
 
+    let engine_used = result.engine_used.clone();
     let translated_result = TranslationResult {
         original: text.clone(),
         translated: result.translated,
         detected_source: result.detected_source,
+        engine_used,
+        fallback: result.fallback,
     };
 
     // Save to history (fire-and-forget if enabled)
     if settings.history_enabled {
+        let history_engine = translated_result.engine_used.clone();
         let entry = history::HistoryEntry {
             id: 0,
             original_text: translated_result.original.clone(),
             translated_text: translated_result.translated.clone(),
             source_lang: settings.source_lang.clone(),
             target_lang: settings.target_lang.clone(),
-            engine: settings.engine.clone(),
+            engine: history_engine,
             created_at: String::new(),
         };
         let _ = tokio::task::spawn_blocking(move || {
@@ -1210,8 +1291,8 @@ pub(crate) fn apply_profile_overrides(base: &Settings, profile: &GameProfile) ->
     if let Some(v) = &profile.target_lang {
         s.target_lang = v.clone();
     }
-    if let Some(v) = &profile.engine {
-        s.engine = v.clone();
+    if let Some(v) = &profile.primary_engine {
+        s.primary_engine = v.clone();
     }
     if let Some(v) = profile.ocr_preprocessing {
         s.ocr_preprocessing = v;
@@ -1260,7 +1341,7 @@ pub async fn add_profile(
             let overridden = apply_profile_overrides(&saved, &profile);
             settings.source_lang = overridden.source_lang;
             settings.target_lang = overridden.target_lang;
-            settings.engine = overridden.engine;
+            settings.primary_engine = overridden.primary_engine;
             settings.ocr_preprocessing = overridden.ocr_preprocessing;
             settings.ocr_binarize = overridden.ocr_binarize;
         }
@@ -1324,7 +1405,7 @@ pub async fn remove_profile(
             let saved = settings_state.saved_defaults.lock().unwrap().clone();
             settings.source_lang = saved.source_lang;
             settings.target_lang = saved.target_lang;
-            settings.engine = saved.engine;
+            settings.primary_engine = saved.primary_engine;
             settings.ocr_preprocessing = saved.ocr_preprocessing;
             settings.ocr_binarize = saved.ocr_binarize;
         }
@@ -1398,7 +1479,7 @@ pub async fn update_profile(
             let overridden = apply_profile_overrides(&saved, &profile);
             settings.source_lang = overridden.source_lang;
             settings.target_lang = overridden.target_lang;
-            settings.engine = overridden.engine;
+            settings.primary_engine = overridden.primary_engine;
             settings.ocr_preprocessing = overridden.ocr_preprocessing;
             settings.ocr_binarize = overridden.ocr_binarize;
         }
@@ -1484,7 +1565,7 @@ mod tests {
             process_names: vec!["poe2.exe".to_string(), "PathOfExile_x64.exe".to_string()],
             source_lang: None,
             target_lang: Some("es".to_string()),
-            engine: None,
+            primary_engine: None,
             ocr_preprocessing: None,
             ocr_binarize: None,
         };
@@ -1515,7 +1596,7 @@ mod tests {
             ],
             source_lang: None,
             target_lang: None,
-            engine: None,
+            primary_engine: None,
             ocr_preprocessing: None,
             ocr_binarize: None,
         };
@@ -1536,7 +1617,8 @@ mod tests {
         let base_settings = Settings {
             source_lang: "en".to_string(),
             target_lang: "es".to_string(),
-            engine: "google_gtx".to_string(),
+            primary_engine: "google_gtx".to_string(),
+            enabled_engines: vec!["google_gtx".to_string(), "mymemory".to_string()],
             ocr_preprocessing: true,
             ocr_binarize: false,
             ..Default::default()
@@ -1547,7 +1629,7 @@ mod tests {
             process_names: vec!["poe2.exe".to_string()],
             source_lang: None,                   // Don't override
             target_lang: Some("ja".to_string()), // Override
-            engine: Some("gemini".to_string()),  // Override
+            primary_engine: Some("gemini".to_string()),  // Override
             ocr_preprocessing: None,             // Don't override
             ocr_binarize: Some(true),            // Override
         };
@@ -1556,14 +1638,14 @@ mod tests {
 
         assert_eq!(result.source_lang, "en"); // Not overridden
         assert_eq!(result.target_lang, "ja"); // Overridden
-        assert_eq!(result.engine, "gemini"); // Overridden
+        assert_eq!(result.primary_engine, "gemini"); // Overridden
         assert_eq!(result.ocr_preprocessing, true); // Not overridden
         assert_eq!(result.ocr_binarize, true); // Overridden
     }
 
     #[test]
     fn test_profiles_serde_default() {
-        let json = r#"{"source_lang":"en","target_lang":"es","engine":"google_gtx","ocr_hotkey":"ctrl+shift+t","write_hotkey":"ctrl+shift+w","ocr_preprocessing":true,"ocr_binarize":false}"#;
+        let json = r#"{"source_lang":"en","target_lang":"es","primary_engine":"google_gtx","enabled_engines":["google_gtx","mymemory"],"ocr_hotkey":"ctrl+shift+t","write_hotkey":"ctrl+shift+w","ocr_preprocessing":true,"ocr_binarize":false}"#;
         let settings: Settings = serde_json::from_str(json).unwrap();
 
         // New fields should use serde defaults when absent from JSON
@@ -1581,5 +1663,6 @@ mod tests {
         assert!(!settings.show_debug);
         assert_eq!(settings.source_lang, "en");
         assert_eq!(settings.target_lang, "es");
+        assert_eq!(settings.primary_engine, "google_gtx"); // migrated from old `engine` field
     }
 }

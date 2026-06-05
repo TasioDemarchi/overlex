@@ -1,14 +1,18 @@
 // Translation module - translation engine trait and adapters
 
+pub mod chain;
 mod deepl;
 mod deepseek;
 mod gemini;
 mod google_gtx;
 mod mymemory;
 
+use std::collections::HashMap;
+use std::sync::Arc;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
+pub use chain::TranslationChain;
 pub use deepl::DeepLAdapter;
 pub use deepseek::DeepSeekAdapter;
 pub use gemini::GeminiAdapter;
@@ -17,6 +21,11 @@ pub use mymemory::MyMemoryAdapter;
 
 use crate::commands::Settings;
 use crate::app_log;
+
+/// Engine classification constants
+pub const PAID_ENGINES: &[&str] = &["gemini", "deepl", "deepseek"];
+pub const FREE_ENGINES: &[&str] = &["google_gtx", "mymemory"];
+pub const ALL_ENGINES: &[&str] = &["google_gtx", "mymemory", "gemini", "deepl", "deepseek"];
 
 /// Game context passed to translation engines for domain-aware translations
 #[derive(Debug, Clone)]
@@ -46,6 +55,10 @@ pub struct TranslationResult {
     pub original: String,
     pub translated: String,
     pub detected_source: Option<String>,
+    /// The name() of the engine that actually performed the translation
+    pub engine_used: String,
+    /// True if a fallback engine was used (primary engine failed)
+    pub fallback: bool,
 }
 
 /// Translation errors
@@ -73,17 +86,16 @@ impl std::fmt::Display for TranslationError {
 
 impl std::error::Error for TranslationError {}
 
-/// Create a translation engine based on settings.
-/// Supports: google_gtx (default, free), mymemory (free),
-/// gemini (requires API key), deepl (requires API key), deepseek (requires API key).
-///
+/// Internal helper: create a single translation engine.
 /// When `api_key_override` is provided, it is used instead of reading from
 /// the credential store. This allows `save_settings` to pass the key the
 /// user just typed, avoiding a race condition with Credential Manager.
-pub fn create_engine(settings: &Settings, api_key_override: Option<String>) -> Box<dyn TranslationEngine> {
-    match settings.engine.as_str() {
+fn create_engine_internal(engine_key: &str, api_key_override: Option<&str>) -> Box<dyn TranslationEngine> {
+    match engine_key {
         "gemini" => {
-            let api_key = api_key_override.or_else(|| crate::settings::get_api_key("gemini").ok());
+            let api_key = api_key_override
+                .map(|s| s.to_string())
+                .or_else(|| crate::settings::get_api_key("gemini").ok());
             app_log!(
                 "[ENGINE] Creating Gemini 2.5 Flash engine (API key: {})",
                 match &api_key {
@@ -96,7 +108,9 @@ pub fn create_engine(settings: &Settings, api_key_override: Option<String>) -> B
             Box::new(GeminiAdapter::new(api_key))
         }
         "deepl" => {
-            let api_key = api_key_override.or_else(|| crate::settings::get_api_key("deepl").ok());
+            let api_key = api_key_override
+                .map(|s| s.to_string())
+                .or_else(|| crate::settings::get_api_key("deepl").ok());
             app_log!(
                 "[ENGINE] Using DeepL Free (API key: {})",
                 match &api_key {
@@ -107,7 +121,9 @@ pub fn create_engine(settings: &Settings, api_key_override: Option<String>) -> B
             Box::new(DeepLAdapter::new(api_key))
         }
         "deepseek" => {
-            let api_key = api_key_override.or_else(|| crate::settings::get_api_key("deepseek").ok());
+            let api_key = api_key_override
+                .map(|s| s.to_string())
+                .or_else(|| crate::settings::get_api_key("deepseek").ok());
             app_log!(
                 "[ENGINE] Creating DeepSeek v4 Flash engine (API key: {})",
                 match &api_key {
@@ -126,6 +142,41 @@ pub fn create_engine(settings: &Settings, api_key_override: Option<String>) -> B
             Box::new(GoogleGtxAdapter::new())
         }
     }
+}
+
+/// Create a translation engine based on settings (backward-compatible wrapper).
+/// Supports: google_gtx (default, free), mymemory (free),
+/// gemini (requires API key), deepl (requires API key), deepseek (requires API key).
+pub fn create_engine(settings: &Settings, api_key_override: Option<String>) -> Box<dyn TranslationEngine> {
+    create_engine_internal(&settings.primary_engine, api_key_override.as_deref())
+}
+
+/// Create all enabled engines at once, returning a HashMap keyed by engine key.
+/// Iterates `enabled_engines` in order and creates the corresponding adapter.
+/// When an API key is present in the map, it's passed directly; otherwise falls
+/// back to the system credential manager.
+pub fn create_all_engines(
+    enabled_engines: &[String],
+    api_keys: &HashMap<String, String>,
+) -> HashMap<String, Arc<dyn TranslationEngine>> {
+    let mut engines: HashMap<String, Arc<dyn TranslationEngine>> = HashMap::new();
+
+    for engine_key in enabled_engines {
+        let key_override = api_keys.get(engine_key);
+        let engine = create_engine_internal(engine_key, key_override.map(|s| s.as_str()));
+        let name = engine.name().to_string();
+        let requires_key = engine.requires_api_key();
+
+        app_log!(
+            "[ENGINE] Registered engine '{}' (requires_key={})",
+            name, requires_key
+        );
+
+        engines.insert(engine_key.clone(), Arc::from(engine));
+    }
+
+    app_log!("[ENGINE] Created {} engines total", engines.len());
+    engines
 }
 
 #[cfg(test)]
@@ -155,10 +206,8 @@ mod tests {
 
     #[test]
     fn test_create_engine_default_fallback() {
-        let settings = Settings {
-            engine: "unknown_engine".to_string(),
-            ..Settings::default()
-        };
+        let mut settings = Settings::default();
+        settings.primary_engine = "unknown_engine".to_string();
         let engine = create_engine(&settings, None);
         assert_eq!(engine.name(), "Google Translate");
         assert!(!engine.requires_api_key());
@@ -166,10 +215,8 @@ mod tests {
 
     #[test]
     fn test_create_engine_google_gtx() {
-        let settings = Settings {
-            engine: "google_gtx".to_string(),
-            ..Settings::default()
-        };
+        let mut settings = Settings::default();
+        settings.primary_engine = "google_gtx".to_string();
         let engine = create_engine(&settings, None);
         assert_eq!(engine.name(), "Google Translate");
         assert!(!engine.requires_api_key());
@@ -177,10 +224,8 @@ mod tests {
 
     #[test]
     fn test_create_engine_mymemory() {
-        let settings = Settings {
-            engine: "mymemory".to_string(),
-            ..Settings::default()
-        };
+        let mut settings = Settings::default();
+        settings.primary_engine = "mymemory".to_string();
         let engine = create_engine(&settings, None);
         assert_eq!(engine.name(), "MyMemory");
         assert!(!engine.requires_api_key());
@@ -188,10 +233,8 @@ mod tests {
 
     #[test]
     fn test_create_engine_gemini() {
-        let settings = Settings {
-            engine: "gemini".to_string(),
-            ..Settings::default()
-        };
+        let mut settings = Settings::default();
+        settings.primary_engine = "gemini".to_string();
         let engine = create_engine(&settings, None);
         assert_eq!(engine.name(), "Gemini");
         assert!(engine.requires_api_key());
@@ -199,10 +242,8 @@ mod tests {
 
     #[test]
     fn test_create_engine_deepl() {
-        let settings = Settings {
-            engine: "deepl".to_string(),
-            ..Settings::default()
-        };
+        let mut settings = Settings::default();
+        settings.primary_engine = "deepl".to_string();
         let engine = create_engine(&settings, None);
         assert_eq!(engine.name(), "DeepL");
         assert!(engine.requires_api_key());
@@ -210,10 +251,8 @@ mod tests {
 
     #[test]
     fn test_create_engine_deepseek() {
-        let settings = Settings {
-            engine: "deepseek".to_string(),
-            ..Settings::default()
-        };
+        let mut settings = Settings::default();
+        settings.primary_engine = "deepseek".to_string();
         let engine = create_engine(&settings, None);
         assert_eq!(engine.name(), "DeepSeek");
         assert!(engine.requires_api_key());

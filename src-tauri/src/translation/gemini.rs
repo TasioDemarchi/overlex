@@ -214,6 +214,8 @@ impl TranslationEngine for GeminiAdapter {
             original: text.to_string(),
             translated: translated.trim().to_string(),
             detected_source: None,
+            engine_used: self.name().to_string(),
+            fallback: false,
         })
     }
 

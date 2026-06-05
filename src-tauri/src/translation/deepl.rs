@@ -143,6 +143,8 @@ impl TranslationEngine for DeepLAdapter {
             original: text.to_string(),
             translated: translation.text.clone(),
             detected_source,
+            engine_used: self.name().to_string(),
+            fallback: false,
         })
     }
 

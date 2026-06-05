@@ -14,6 +14,7 @@ pub mod tray;
 
 pub use commands::{Settings, GameProfile, ActiveGameInfo};
 
+use std::collections::HashMap;
 use std::sync::{Arc, RwLock, Mutex};
 use tauri::{
     menu::{Menu, MenuItem},
@@ -21,16 +22,17 @@ use tauri::{
     Manager, Runtime, Listener, Position, LogicalPosition, Emitter,
 };
 use image::{ImageBuffer, Rgba, ImageEncoder};
-use translation::TranslationEngine;
+use translation::{TranslationEngine, TranslationChain};
 use window_vibrancy::apply_acrylic;
 
 #[cfg(target_os = "windows")]
 use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
 
-/// State to hold the translation engine (swappeable at runtime via settings change).
-/// Uses RwLock to allow concurrent reads (translate calls) with exclusive writes (engine swap).
+/// State to hold all translation engines and the active fallback chain.
+/// Uses RwLock to allow concurrent reads (translate calls) with exclusive writes (engine rebuild).
 pub struct TranslationState {
-    pub engine: Arc<RwLock<Arc<dyn TranslationEngine>>>,
+    pub engines: Arc<RwLock<HashMap<String, Arc<dyn TranslationEngine>>>>,
+    pub chain: Arc<RwLock<Arc<TranslationChain>>>,
 }
 
 /// State to hold the latest screenshot (for OCR region capture)
@@ -68,6 +70,10 @@ pub struct ResultPayload {
     pub timeout_ms: u32,
     pub source_lang: String,
     pub target_lang: String,
+    /// Name of the engine that actually performed the translation
+    pub engine_used: String,
+    /// True if a fallback engine was used (primary engine failed)
+    pub fallback: bool,
 }
 
 fn setup_tray<R: Runtime>(app: &tauri::App<R>) -> Result<(), Box<dyn std::error::Error>> {
@@ -127,12 +133,19 @@ pub fn run() {
             let settings = settings::load_settings();
             let settings_for_hotkey = settings.clone();
 
-            // Initialize translation engine based on settings (dynamic factory)
+            // Initialize translation engines based on settings (dynamic factory)
             // All supported engines are free and require no registration:
             // google_gtx (default), mymemory
-            let engine: Arc<dyn TranslationEngine> = Arc::from(translation::create_engine(&settings, None));
+            let enabled_engines = settings.enabled_engines.clone();
+            let engines_map = translation::create_all_engines(&enabled_engines, &HashMap::new());
+            let chain = TranslationChain::new(
+                &settings.primary_engine,
+                engines_map.clone(),
+                &enabled_engines,
+            );
             let translation_state = TranslationState {
-                engine: Arc::new(RwLock::new(engine)),
+                engines: Arc::new(RwLock::new(engines_map)),
+                chain: Arc::new(RwLock::new(Arc::new(chain))),
             };
             app.manage(translation_state);
             app_log!("[SETUP] TranslationState managed");
@@ -226,10 +239,10 @@ pub fn run() {
                         return;
                     };
 
-                    // Lock order: settings(1) → saved_defaults(2) → active_game.info(3) → engine(4).
+                    // Lock order: settings(1) → saved_defaults(2) → active_game.info(3) → engines/chain(4).
 
-                    // Step 1: Read current engine from active settings (lock 1).
-                    let current_engine = settings_state.settings.lock().unwrap().engine.clone();
+                    // Step 1: Read current primary engine from active settings (lock 1).
+                    let current_primary = settings_state.settings.lock().unwrap().primary_engine.clone();
 
                     // Step 2: Determine effective settings from saved_defaults (lock 2)
                     //          and profile match.
@@ -254,14 +267,27 @@ pub fn run() {
                     // Step 3: Update active settings (lock 1).
                     *settings_state.settings.lock().unwrap() = effective_settings.clone();
 
-                    // Step 4: Swap engine if needed (lock 4).
-                    if current_engine != effective_settings.engine {
-                        let new_engine: Arc<dyn TranslationEngine> =
-                            Arc::from(crate::translation::create_engine(&effective_settings, None));
-                        let mut engine_guard = translation_state.engine.write().unwrap();
-                        *engine_guard = new_engine;
-                        app_log!("[AUTO_SWITCH] Engine swapped: {} -> {}",
-                            current_engine, effective_settings.engine);
+                    // Step 4: Rebuild engines and chain if primary or enabled_engines changed (lock 4).
+                    if current_primary != effective_settings.primary_engine {
+                        let enabled = effective_settings.enabled_engines.clone();
+                        let new_engines = crate::translation::create_all_engines(&enabled, &HashMap::new());
+                        let new_chain = crate::translation::TranslationChain::new(
+                            &effective_settings.primary_engine,
+                            new_engines.clone(),
+                            &enabled,
+                        );
+
+                        {
+                            let mut engines_guard = translation_state.engines.write().unwrap();
+                            *engines_guard = new_engines;
+                        }
+                        {
+                            let mut chain_guard = translation_state.chain.write().unwrap();
+                            *chain_guard = Arc::new(new_chain);
+                        }
+
+                        app_log!("[AUTO_SWITCH] Engine chain rebuilt: {} -> {}",
+                            current_primary, effective_settings.primary_engine);
                     }
 
                     // Step 5: Update active game info (lock 3).

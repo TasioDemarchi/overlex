@@ -4,15 +4,24 @@ const { invoke } = window.__TAURI__.core;
 const listen = window.__TAURI__?.event?.listen;
 
 // Engines that require an API key
-const ENGINES_NEEDING_KEY = ['gemini', 'deepl', 'deepseek'];
+const ALL_ENGINES = ['google_gtx', 'mymemory', 'gemini', 'deepl', 'deepseek'];
+const PAID_ENGINES = ['gemini', 'deepl', 'deepseek'];
+const FREE_ENGINES = ['google_gtx', 'mymemory'];
+const ENGINE_LABELS = {
+    google_gtx: 'Google Translate',
+    mymemory: 'MyMemory',
+    gemini: 'Gemini',
+    deepl: 'DeepL',
+    deepseek: 'DeepSeek',
+};
 
 // DOM elements
 const ocrHotkeyInput = document.getElementById('ocr-hotkey');
 const writeHotkeyInput = document.getElementById('write-hotkey');
 const sourceLangSelect = document.getElementById('source-lang');
 const targetLangSelect = document.getElementById('target-lang');
-const engineSelect = document.getElementById('engine');
-const apiKeyInput = document.getElementById('api-key');
+const primaryEngineSelect = document.getElementById('primary-engine');
+const engineCheckboxesDiv = document.getElementById('engine-checkboxes');
 const overlayPositionSelect = document.getElementById('overlay-position');
 const autoDismissEnabledCheckbox = document.getElementById('auto-dismiss-enabled');
 const timeoutGroup = document.getElementById('timeout-group');
@@ -38,10 +47,6 @@ const apiKeyModal = document.getElementById('api-key-modal');
 const apiKeyModalClose = document.getElementById('api-key-modal-close');
 const apiKeyModalTitle = document.getElementById('api-key-modal-title');
 const apiKeyModalBody = document.getElementById('api-key-modal-body');
-const engineKeyStatus = document.getElementById('engine-key-status');
-const apiKeyGroup = document.getElementById('api-key-group');
-const testApiKeyBtn = document.getElementById('test-api-key-btn');
-const apiKeyTestStatus = document.getElementById('api-key-test-status');
 const historyExportJsonBtn = document.getElementById('history-export-json');
 const historyExportCsvBtn = document.getElementById('history-export-csv');
 const historyClearBtn = document.getElementById('history-clear');
@@ -299,7 +304,7 @@ function renderProfiles() {
         const badges = [];
         if (profile.source_lang) badges.push(`<span class="badge badge-lang">src: ${escapeHtml(profile.source_lang)}</span>`);
         if (profile.target_lang) badges.push(`<span class="badge badge-lang">→ ${escapeHtml(profile.target_lang)}</span>`);
-        if (profile.engine) badges.push(`<span class="badge badge-engine">${escapeHtml(profile.engine)}</span>`);
+        if (profile.primary_engine) badges.push(`<span class="badge badge-engine">${escapeHtml(profile.primary_engine)}</span>`);
         if (profile.ocr_preprocessing) badges.push('<span class="badge badge-ocr">preprocess</span>');
         if (profile.ocr_binarize) badges.push('<span class="badge badge-ocr">binarize</span>');
 
@@ -333,7 +338,7 @@ function openProfileForm(profile) {
         profileProcessNames.value = (profile.process_names || []).join(', ');
         profileSourceLang.value = profile.source_lang || '';
         profileTargetLang.value = profile.target_lang || '';
-        profileEngine.value = profile.engine || '';
+        profileEngine.value = profile.primary_engine || profile.engine || '';
         profileOcrPreprocessing.checked = profile.ocr_preprocessing === true;
         profileOcrBinarize.checked = profile.ocr_binarize === true;
     } else {
@@ -386,7 +391,7 @@ async function saveProfile() {
         process_names: processNames,
         source_lang: profileSourceLang.value || null,
         target_lang: profileTargetLang.value || null,
-        engine: profileEngine.value || null,
+        primary_engine: profileEngine.value || null,
         ocr_preprocessing: profileOcrPreprocessing.checked ? true : null,
         ocr_binarize: profileOcrBinarize.checked ? true : null,
     };
@@ -442,7 +447,7 @@ function updateBanner() {
     }
     if (profile) {
         if (profile.target_lang) details.push(`Target: ${profile.target_lang}`);
-        if (profile.engine) details.push(`Engine: ${profile.engine}`);
+        if (profile.primary_engine) details.push(`Engine: ${profile.primary_engine}`);
         if (profile.source_lang) details.push(`Source: ${profile.source_lang}`);
     }
 
@@ -528,9 +533,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         writeHotkeyInput.value = settings.write_hotkey || '';
         sourceLangSelect.value = settings.source_lang || 'auto';
         targetLangSelect.value = settings.target_lang || 'es';
-        engineSelect.value = settings.engine || 'google_gtx';
-        // Check API key status for the loaded engine (don't await to avoid blocking settings load)
-        checkEngineKeyStatus().catch(e => console.warn('checkEngineKeyStatus failed:', e));
+
+        // Render engine UI with new multi-engine design
+        const enabledEngines = settings.enabled_engines || ['google_gtx', 'mymemory'];
+        const primaryEngine = settings.primary_engine || 'google_gtx';
+        renderEngineUI(enabledEngines, primaryEngine);
+
         overlayPositionSelect.value = settings.overlay_position || 'near-selection';
 
         // Handle auto-dismiss: if timeout > 0, check and show; if 0, uncheck and hide
@@ -567,7 +575,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         writeHotkeyInput.value = 'CTRL+SHIFT+W';
         sourceLangSelect.value = 'auto';
         targetLangSelect.value = 'es';
-        engineSelect.value = 'google_gtx';
+        renderEngineUI(['google_gtx', 'mymemory'], 'google_gtx');
         overlayPositionSelect.value = 'near-selection';
         autoDismissEnabledCheckbox.checked = true;
         timeoutGroup.style.display = 'block';
@@ -583,13 +591,20 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 // Save button handler
 saveBtn.addEventListener('click', async () => {
+    // Read enabled paid engines from checkboxes
+    const checkedPaidEngines = getCheckedPaidEngines();
+
+    // Build enabled_engines: free engines always included + checked paid engines
+    const enabledEngines = [...FREE_ENGINES, ...checkedPaidEngines];
+
     // Gather form values
     const settings = {
         ocr_hotkey: ocrHotkeyInput.value || 'CTRL+SHIFT+T',
         write_hotkey: writeHotkeyInput.value || 'CTRL+SHIFT+W',
         source_lang: sourceLangSelect.value,
         target_lang: targetLangSelect.value,
-        engine: engineSelect.value,
+        primary_engine: primaryEngineSelect.value,
+        enabled_engines: enabledEngines,
         overlay_position: overlayPositionSelect.value,
         // If checkbox unchecked, send 0 (never dismiss). If checked, send the value or default 5000
         overlay_timeout_ms: autoDismissEnabledCheckbox.checked
@@ -618,26 +633,17 @@ saveBtn.addEventListener('click', async () => {
     }
 
     try {
-        // Determine if we have an API key to pass
-        const apiKey = (apiKeyInput.value && ENGINES_NEEDING_KEY.includes(engineSelect.value))
-            ? apiKeyInput.value
-            : null;
+        // Collect API keys per engine
+        const apiKeys = {};
+        PAID_ENGINES.forEach(engine => {
+            const input = document.getElementById(`api-key-${engine}`);
+            if (input && input.value.trim()) {
+                apiKeys[engine] = input.value.trim();
+            }
+        });
 
-        // Save API key to Credential Manager for persistence across restarts
-        if (apiKey) {
-            await invoke('set_api_key', {
-                engine: engineSelect.value,
-                key: apiKey
-            });
-        }
-
-        // Save settings (validates hotkeys + recreates engine with the key passed directly)
-        await invoke('save_settings', { settings, apiKey });
-
-        // Refresh key status display after saving
-        if (ENGINES_NEEDING_KEY.includes(engineSelect.value)) {
-            await checkEngineKeyStatus();
-        }
+        // Save settings (validates hotkeys + recreates engines with the api_keys map)
+        await invoke('save_settings', { settings, apiKeys });
 
         // Update current settings
         currentSettings = settings;
@@ -720,7 +726,191 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (typeof s.show_debug === 'boolean') {
                 showDebugCheckbox.checked = s.show_debug;
             }
+            // Update engine UI if engine config changed
+            if (s.primary_engine || s.enabled_engines) {
+                const enabledEngines = s.enabled_engines || __currentEnabledEngines;
+                const primaryEngine = s.primary_engine || __currentPrimaryEngine;
+                renderEngineUI(enabledEngines, primaryEngine);
+            }
         }).catch(e => console.error('Failed to listen settings-changed:', e));
+    }
+});
+
+// ============================================================
+// Engine UI — Multi-Engine Checkboxes, Primary Dropdown, Per-Engine Keys
+// ============================================================
+
+// Track current engine state
+let __currentEnabledEngines = [...FREE_ENGINES];
+let __currentPrimaryEngine = 'google_gtx';
+
+function getCheckedPaidEngines() {
+    const checked = [];
+    PAID_ENGINES.forEach(engine => {
+        const cb = document.getElementById(`engine-cb-${engine}`);
+        if (cb && cb.checked) {
+            checked.push(engine);
+        }
+    });
+    return checked;
+}
+
+function renderEngineUI(enabledEngines, primaryEngine) {
+    __currentEnabledEngines = enabledEngines;
+    __currentPrimaryEngine = primaryEngine;
+
+    // Render paid engine checkboxes
+    engineCheckboxesDiv.innerHTML = '';
+    PAID_ENGINES.forEach(engine => {
+        const label = document.createElement('label');
+        label.className = 'checkbox-label';
+        label.style.marginBottom = '4px';
+
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.id = `engine-cb-${engine}`;
+        cb.value = engine;
+        cb.checked = enabledEngines.includes(engine);
+
+        cb.addEventListener('change', () => {
+            // Toggle API key section visibility
+            const keySection = document.querySelector(`.engine-api-key[data-engine="${engine}"]`);
+            if (keySection) {
+                keySection.style.display = cb.checked ? 'block' : 'none';
+            }
+            // Re-render primary dropdown based on current state
+            renderPrimaryDropdown(primaryEngineSelect.value);
+        });
+
+        label.appendChild(cb);
+        label.appendChild(document.createTextNode(` Enable ${ENGINE_LABELS[engine]}`));
+        engineCheckboxesDiv.appendChild(label);
+    });
+
+    // Render primary engine dropdown
+    renderPrimaryDropdown(primaryEngine);
+
+    // Show/hide API key sections for checked paid engines
+    PAID_ENGINES.forEach(engine => {
+        const keySection = document.querySelector(`.engine-api-key[data-engine="${engine}"]`);
+        if (keySection) {
+            keySection.style.display = enabledEngines.includes(engine) ? 'block' : 'none';
+        }
+    });
+
+    // Check stored keys for paid engines
+    PAID_ENGINES.forEach(engine => {
+        checkEngineKeyStatus(engine).catch(e => console.warn(`checkEngineKeyStatus ${engine} failed:`, e));
+    });
+}
+
+function renderPrimaryDropdown(selectedEngine) {
+    const checkedPaid = getCheckedPaidEngines();
+    const allEnabled = [...FREE_ENGINES, ...checkedPaid];
+
+    primaryEngineSelect.innerHTML = '';
+    allEnabled.forEach(engine => {
+        const option = document.createElement('option');
+        option.value = engine;
+        option.textContent = ENGINE_LABELS[engine] || engine;
+        if (engine === selectedEngine) {
+            option.selected = true;
+        }
+        primaryEngineSelect.appendChild(option);
+    });
+
+    // Ensure selection is valid
+    if (!allEnabled.includes(selectedEngine) && allEnabled.length > 0) {
+        primaryEngineSelect.value = allEnabled[0];
+    }
+
+    __currentPrimaryEngine = primaryEngineSelect.value;
+}
+
+// When primary engine changes, update local state
+primaryEngineSelect.addEventListener('change', () => {
+    __currentPrimaryEngine = primaryEngineSelect.value;
+});
+
+// Check and display API key status for a specific engine
+async function checkEngineKeyStatus(engine) {
+    const statusEl = document.getElementById(`api-key-status-${engine}`);
+    const inputEl = document.getElementById(`api-key-${engine}`);
+
+    if (!PAID_ENGINES.includes(engine)) return;
+
+    try {
+        const key = await invoke('get_api_key', { engine });
+        if (key && inputEl) {
+            inputEl.value = key;
+        }
+        if (statusEl) {
+            if (key) {
+                statusEl.textContent = `✓ ${ENGINE_LABELS[engine]} API key stored`;
+                statusEl.style.color = 'var(--success, #51cf66)';
+            } else {
+                statusEl.textContent = `✗ No ${ENGINE_LABELS[engine]} API key stored`;
+                statusEl.style.color = 'var(--error, #ff6b6b)';
+            }
+        }
+    } catch (e) {
+        if (statusEl) {
+            statusEl.textContent = `✗ Error checking key: ${e}`;
+            statusEl.style.color = 'var(--error, #ff6b6b)';
+        }
+    }
+}
+
+// Per-engine Test Key buttons
+document.addEventListener('click', async (e) => {
+    const btn = e.target.closest('.test-key-btn');
+    if (!btn) return;
+
+    const engine = btn.dataset.engine;
+    const inputEl = document.getElementById(`api-key-${engine}`);
+    const statusEl = document.getElementById(`api-key-status-${engine}`);
+    const key = inputEl ? inputEl.value.trim() : '';
+
+    if (!key) {
+        if (statusEl) {
+            statusEl.textContent = '✗ Enter an API key first';
+            statusEl.style.color = 'var(--error, #ff6b6b)';
+        }
+        return;
+    }
+
+    // Disable button during test
+    btn.disabled = true;
+    btn.textContent = 'Testing...';
+    if (statusEl) {
+        statusEl.textContent = 'Testing API key...';
+        statusEl.style.color = 'var(--text-secondary)';
+    }
+
+    try {
+        const result = await invoke('test_api_key', { engine, key });
+
+        if (result.success) {
+            // Save the key on success
+            await invoke('set_api_key', { engine, key });
+            if (statusEl) {
+                statusEl.textContent = `✓ ${result.message}`;
+                statusEl.style.color = 'var(--success, #51cf66)';
+            }
+        } else {
+            if (statusEl) {
+                statusEl.textContent = `✗ ${result.message}`;
+                statusEl.style.color = 'var(--error, #ff6b6b)';
+            }
+        }
+    } catch (e) {
+        if (statusEl) {
+            statusEl.textContent = `✗ Test failed: ${e}`;
+            statusEl.style.color = 'var(--error, #ff6b6b)';
+        }
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Test Key';
     }
 });
 
@@ -763,9 +953,9 @@ const API_KEY_HELP = {
         `
     },
     google_gtx: {
-        title: 'Google GTX (No API Key Required)',
+        title: 'Google Translate (No API Key Required)',
         content: `
-            <p>Google GTX is a free, unofficial Google Translate endpoint. No API key is needed.</p>
+            <p>Google Translate is a free, unofficial Google Translate endpoint. No API key is needed.</p>
             <div class="api-key-note">
                 <strong>How it works:</strong> Uses Google's unofficial translation API directly. Best-effort translation with no rate limits or quotas enforced.
             </div>
@@ -798,9 +988,9 @@ const API_KEY_HELP = {
     }
 };
 
-// Open help modal
+// Open help modal for current primary engine
 engineHelpBtn.addEventListener('click', () => {
-    const engine = engineSelect.value;
+    const engine = primaryEngineSelect.value;
     const help = API_KEY_HELP[engine];
 
     if (help) {
@@ -830,96 +1020,6 @@ apiKeyModal.addEventListener('click', (e) => {
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && apiKeyModal.classList.contains('visible')) {
         apiKeyModal.classList.remove('visible');
-    }
-});
-
-// ============================================================
-// API Key Status Checker
-// ============================================================
-
-// Check and display API key status for current engine
-async function checkEngineKeyStatus() {
-    const engine = engineSelect.value;
-
-    if (!ENGINES_NEEDING_KEY.includes(engine)) {
-        // Hide API key field for engines that don't need it
-        apiKeyGroup.style.display = 'none';
-        apiKeyInput.value = '';
-        engineKeyStatus.textContent = '';
-        engineKeyStatus.style.color = '';
-        return;
-    }
-
-    // Show API key field for engines that need it
-    apiKeyGroup.style.display = 'block';
-
-    try {
-        // Load the stored key for this engine
-        const key = await invoke('get_api_key', { engine });
-        if (key) {
-            apiKeyInput.value = key;
-            engineKeyStatus.textContent = `✓ ${engine.toUpperCase()} API key stored`;
-            engineKeyStatus.style.color = 'var(--success, #51cf66)';
-        } else {
-            apiKeyInput.value = '';
-            engineKeyStatus.textContent = `✗ No ${engine.toUpperCase()} API key stored`;
-            engineKeyStatus.style.color = 'var(--error, #ff6b6b)';
-        }
-    } catch (e) {
-        // Don't clear the input - user might have typed a key that hasn't been saved yet
-        engineKeyStatus.textContent = `✗ Error checking key: ${e}`;
-        engineKeyStatus.style.color = 'var(--error, #ff6b6b)';
-    }
-}
-
-// Check status when engine changes
-engineSelect.addEventListener('change', checkEngineKeyStatus);
-
-// ============================================================
-// API Key Test Button
-// ============================================================
-
-testApiKeyBtn.addEventListener('click', async () => {
-    const engine = engineSelect.value;
-    const key = apiKeyInput.value.trim();
-
-    if (!key) {
-        apiKeyTestStatus.textContent = '✗ Enter an API key first';
-        apiKeyTestStatus.style.color = 'var(--error, #ff6b6b)';
-        return;
-    }
-
-    if (!ENGINES_NEEDING_KEY.includes(engine)) {
-        apiKeyTestStatus.textContent = 'ℹ This engine does not require an API key';
-        apiKeyTestStatus.style.color = 'var(--text-secondary)';
-        return;
-    }
-
-    // Disable button during test
-    testApiKeyBtn.disabled = true;
-    testApiKeyBtn.textContent = 'Testing...';
-    apiKeyTestStatus.textContent = 'Testing API key...';
-    apiKeyTestStatus.style.color = 'var(--text-secondary)';
-
-    try {
-        // Test the key directly (no need to save first - backend receives key as parameter)
-        const result = await invoke('test_api_key', { engine, key });
-
-        if (result.success) {
-            // Only save if test succeeds
-            await invoke('set_api_key', { engine, key });
-            apiKeyTestStatus.textContent = `✓ ${result.message}`;
-            apiKeyTestStatus.style.color = 'var(--success, #51cf66)';
-        } else {
-            apiKeyTestStatus.textContent = `✗ ${result.message}`;
-            apiKeyTestStatus.style.color = 'var(--error, #ff6b6b)';
-        }
-    } catch (e) {
-        apiKeyTestStatus.textContent = `✗ Test failed: ${e}`;
-        apiKeyTestStatus.style.color = 'var(--error, #ff6b6b)';
-    } finally {
-        testApiKeyBtn.disabled = false;
-        testApiKeyBtn.textContent = 'Test Key';
     }
 });
 

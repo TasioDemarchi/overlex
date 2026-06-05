@@ -105,6 +105,8 @@ impl TranslationEngine for GoogleGtxAdapter {
             original: text.to_string(),
             translated,
             detected_source,
+            engine_used: self.name().to_string(),
+            fallback: false,
         })
     }
 

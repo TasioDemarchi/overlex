@@ -11,6 +11,15 @@ const swapBtn = document.getElementById('swap-btn');
 let hasMessages = false;
 let __currentEngine = '—';
 
+// Engine name mapping
+const ENGINE_LABELS = {
+    google_gtx: 'Google Translate',
+    mymemory: 'MyMemory',
+    gemini: 'Gemini',
+    deepl: 'DeepL',
+    deepseek: 'DeepSeek',
+};
+
 function removeEmptyState() {
     if (!hasMessages) {
         const emptyState = chatHistory.querySelector('.empty-state');
@@ -43,7 +52,7 @@ input?.focus();
         langDisplay.textContent = `${sourceUpper} → ${targetUpper}`;
 
         // Debug line: track engine and show if enabled
-        __currentEngine = settings.engine || '—';
+        __currentEngine = ENGINE_LABELS[settings.primary_engine] || settings.primary_engine || '—';
         if (settings.show_debug) {
             const debugEl = document.getElementById('debug-line');
             if (debugEl) debugEl.classList.add('visible');
@@ -102,8 +111,8 @@ try {
             const payload = event.payload;
             if (!payload) return;
             // Update engine if changed
-            if (payload.engine) {
-                __currentEngine = payload.engine;
+            if (payload.primary_engine) {
+                __currentEngine = ENGINE_LABELS[payload.primary_engine] || payload.primary_engine;
             }
             // Update language display if source_lang or target_lang changed
             if (payload.source_lang || payload.target_lang) {
@@ -167,6 +176,18 @@ input?.addEventListener('keydown', async (e) => {
             translatedEl.className = 'translated-text';
             translatedEl.textContent = result.translated;
             entry.appendChild(translatedEl);
+
+            // Show engine used indicator
+            if (result.engine_used) {
+                const engineNote = document.createElement('div');
+                engineNote.className = 'detected-lang';
+                const displayName = ENGINE_LABELS[result.engine_used] || result.engine_used;
+                engineNote.textContent = result.fallback
+                    ? `⚠ ${displayName} (fallback)`
+                    : `${displayName}`;
+                engineNote.style.color = result.fallback ? '#ffa94d' : '#555';
+                entry.appendChild(engineNote);
+            }
 
             if (result.detected_source) {
                 const langEl = document.createElement('div');
