@@ -76,15 +76,18 @@ impl std::error::Error for TranslationError {}
 /// Create a translation engine based on settings.
 /// Supports: google_gtx (default, free), mymemory (free), libretranslate,
 /// gemini (requires API key), deepl (requires API key).
-pub fn create_engine(settings: &Settings) -> Box<dyn TranslationEngine> {
+///
+/// When `api_key_override` is provided, it is used instead of reading from
+/// the credential store. This allows `save_settings` to pass the key the
+/// user just typed, avoiding a race condition with Credential Manager.
+pub fn create_engine(settings: &Settings, api_key_override: Option<String>) -> Box<dyn TranslationEngine> {
     match settings.engine.as_str() {
         "gemini" => {
-            let api_key = crate::settings::get_api_key("gemini").ok();
+            let api_key = api_key_override.or_else(|| crate::settings::get_api_key("gemini").ok());
             app_log!(
-                "[ENGINE] Using Gemini 2.0 Flash (API key: {})",
+                "[ENGINE] Creating Gemini 2.5 Flash engine (API key: {})",
                 match &api_key {
                     Some(k) => {
-                        // Log key prefix and length for debugging (never log full key)
                         format!("present ({} chars, starts with {}...)", k.len(), &k[..k.len().min(8)])
                     }
                     None => "NOT FOUND — save the API key in Settings first".to_string(),
@@ -93,7 +96,7 @@ pub fn create_engine(settings: &Settings) -> Box<dyn TranslationEngine> {
             Box::new(GeminiAdapter::new(api_key))
         }
         "deepl" => {
-            let api_key = crate::settings::get_api_key("deepl").ok();
+            let api_key = api_key_override.or_else(|| crate::settings::get_api_key("deepl").ok());
             app_log!(
                 "[ENGINE] Using DeepL Free (API key: {})",
                 match &api_key {
@@ -108,7 +111,7 @@ pub fn create_engine(settings: &Settings) -> Box<dyn TranslationEngine> {
             Box::new(MyMemoryAdapter::new())
         }
         "libretranslate" => {
-            let api_key = crate::settings::get_api_key("libretranslate").ok();
+            let api_key = api_key_override.or_else(|| crate::settings::get_api_key("libretranslate").ok());
             app_log!(
                 "[ENGINE] Using LibreTranslate at {}",
                 settings.libre_translate_url
@@ -156,7 +159,7 @@ mod tests {
             engine: "unknown_engine".to_string(),
             ..Settings::default()
         };
-        let engine = create_engine(&settings);
+        let engine = create_engine(&settings, None);
         assert_eq!(engine.name(), "Google Translate");
         assert!(!engine.requires_api_key());
     }
@@ -167,7 +170,7 @@ mod tests {
             engine: "google_gtx".to_string(),
             ..Settings::default()
         };
-        let engine = create_engine(&settings);
+        let engine = create_engine(&settings, None);
         assert_eq!(engine.name(), "Google Translate");
         assert!(!engine.requires_api_key());
     }
@@ -178,7 +181,7 @@ mod tests {
             engine: "mymemory".to_string(),
             ..Settings::default()
         };
-        let engine = create_engine(&settings);
+        let engine = create_engine(&settings, None);
         assert_eq!(engine.name(), "MyMemory");
         assert!(!engine.requires_api_key());
     }
@@ -189,7 +192,7 @@ mod tests {
             engine: "gemini".to_string(),
             ..Settings::default()
         };
-        let engine = create_engine(&settings);
+        let engine = create_engine(&settings, None);
         assert_eq!(engine.name(), "Gemini");
         assert!(engine.requires_api_key());
     }
@@ -200,7 +203,7 @@ mod tests {
             engine: "deepl".to_string(),
             ..Settings::default()
         };
-        let engine = create_engine(&settings);
+        let engine = create_engine(&settings, None);
         assert_eq!(engine.name(), "DeepL");
         assert!(engine.requires_api_key());
     }

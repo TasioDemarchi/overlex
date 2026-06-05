@@ -130,7 +130,7 @@ pub fn run() {
             // Initialize translation engine based on settings (dynamic factory)
             // All supported engines are free and require no registration:
             // google_gtx (default), mymemory, libretranslate
-            let engine: Arc<dyn TranslationEngine> = Arc::from(translation::create_engine(&settings));
+            let engine: Arc<dyn TranslationEngine> = Arc::from(translation::create_engine(&settings, None));
             let translation_state = TranslationState {
                 engine: Arc::new(RwLock::new(engine)),
             };
@@ -257,7 +257,7 @@ pub fn run() {
                     // Step 4: Swap engine if needed (lock 4).
                     if current_engine != effective_settings.engine {
                         let new_engine: Arc<dyn TranslationEngine> =
-                            Arc::from(crate::translation::create_engine(&effective_settings));
+                            Arc::from(crate::translation::create_engine(&effective_settings, None));
                         let mut engine_guard = translation_state.engine.write().unwrap();
                         *engine_guard = new_engine;
                         app_log!("[AUTO_SWITCH] Engine swapped: {} -> {}",

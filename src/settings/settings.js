@@ -562,6 +562,22 @@ document.addEventListener('DOMContentLoaded', async () => {
     } catch (e) {
         console.error('Failed to load settings:', e);
         showMessage('Failed to load settings: ' + e, true);
+        // Still populate form with defaults so the page isn't blank
+        ocrHotkeyInput.value = 'CTRL+SHIFT+T';
+        writeHotkeyInput.value = 'CTRL+SHIFT+W';
+        sourceLangSelect.value = 'auto';
+        targetLangSelect.value = 'es';
+        engineSelect.value = 'google_gtx';
+        overlayPositionSelect.value = 'near-selection';
+        autoDismissEnabledCheckbox.checked = true;
+        timeoutGroup.style.display = 'block';
+        overlayTimeoutInput.value = 5000;
+        startWithWindowsCheckbox.checked = false;
+        ocrPreprocessingCheckbox.checked = true;
+        ocrBinarizeCheckbox.checked = false;
+        ocrBinarizeCheckbox.disabled = false;
+        historyEnabledCheckbox.checked = true;
+        historyPanel.style.display = 'block';
     }
 });
 
@@ -603,17 +619,21 @@ saveBtn.addEventListener('click', async () => {
     }
 
     try {
-        // Save API key FIRST (before settings), so the engine recreation
-        // during save_settings can pick up the newly saved key from the credential store.
-        if (apiKeyInput.value && ENGINES_NEEDING_KEY.includes(engineSelect.value)) {
+        // Determine if we have an API key to pass
+        const apiKey = (apiKeyInput.value && ENGINES_NEEDING_KEY.includes(engineSelect.value))
+            ? apiKeyInput.value
+            : null;
+
+        // Save API key to Credential Manager for persistence across restarts
+        if (apiKey) {
             await invoke('set_api_key', {
                 engine: engineSelect.value,
-                key: apiKeyInput.value
+                key: apiKey
             });
         }
 
-        // Save settings (validates hotkeys + recreates engine with the saved key)
-        await invoke('save_settings', { settings });
+        // Save settings (validates hotkeys + recreates engine with the key passed directly)
+        await invoke('save_settings', { settings, apiKey });
 
         // Refresh key status display after saving
         if (ENGINES_NEEDING_KEY.includes(engineSelect.value)) {

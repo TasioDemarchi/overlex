@@ -301,12 +301,14 @@ pub async fn get_settings(
 #[tauri::command]
 pub async fn save_settings(
     settings: Settings,
+    api_key: Option<String>,
     settings_state: tauri::State<'_, SettingsState>,
     active_game_state: tauri::State<'_, ActiveGameState>,
     hotkey_state: tauri::State<'_, std::sync::Mutex<crate::hotkeys::HotkeyState>>,
     translation_state: tauri::State<'_, TranslationState>,
     app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
+    app_log!("[SETTINGS] Saving settings, api_key provided: {}", api_key.is_some());
     // Validate hotkeys
     settings::validate_hotkeys(&settings)?;
 
@@ -358,7 +360,7 @@ pub async fn save_settings(
     let engine_requires_key = matches!(effective_settings.engine.as_str(), "gemini" | "deepl" | "libretranslate");
     if engine_changed || engine_requires_key {
         let new_engine: Arc<dyn TranslationEngine> =
-            Arc::from(crate::translation::create_engine(&effective_settings));
+            Arc::from(crate::translation::create_engine(&effective_settings, api_key.clone()));
         let mut engine_guard = translation_state.engine.write().unwrap();
         *engine_guard = new_engine;
         app_log!(
