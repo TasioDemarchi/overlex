@@ -398,13 +398,33 @@ pub async fn swap_languages(
     Ok(result)
 }
 
-/// Get current settings
+/// Get base settings (saved defaults without profile overrides).
+/// This is what the settings UI uses to populate the form.
 #[tauri::command]
 pub async fn get_settings(
     settings_state: tauri::State<'_, SettingsState>,
 ) -> Result<Settings, String> {
+    let settings = settings_state.saved_defaults.lock().unwrap().clone();
+    Ok(settings)
+}
+
+/// Get active/effective settings (with profile overrides applied).
+/// This is what overlays (write, result) use for engine/language info.
+#[tauri::command]
+pub async fn get_active_settings(
+    settings_state: tauri::State<'_, SettingsState>,
+) -> Result<Settings, String> {
     let settings = settings_state.settings.lock().unwrap().clone();
     Ok(settings)
+}
+
+/// Return type for save_settings with per-engine keyring error map.
+/// Empty map = total success (including keyring).
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SaveSettingsResponse {
+    /// Per-engine errors from Credential Manager operations.
+    /// Key = engine name, Value = error message.
+    pub key_errors: std::collections::HashMap<String, String>,
 }
 
 /// Save settings to disk
@@ -417,7 +437,7 @@ pub async fn save_settings(
     hotkey_state: tauri::State<'_, std::sync::Mutex<crate::hotkeys::HotkeyState>>,
     translation_state: tauri::State<'_, TranslationState>,
     app_handle: tauri::AppHandle,
-) -> Result<(), String> {
+) -> Result<SaveSettingsResponse, String> {
     app_log!("[SETTINGS] Saving settings, api_keys provided: {}", api_keys.len());
 
     // Validate hotkeys
@@ -426,6 +446,19 @@ pub async fn save_settings(
     // Normalize settings before saving
     let mut normalized_settings = settings.clone();
     settings::normalize_settings(&mut normalized_settings);
+
+    // Persist API keys to Credential Manager (best-effort).
+    // Keys must be stored BEFORE create_all_engines so engines can load them on restart.
+    let mut key_errors: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    for (engine, key) in &api_keys {
+        if let Err(e) = settings::set_api_key(engine, key) {
+            app_log!("[SETTINGS] Failed to store API key for {}: {}", engine, e);
+            key_errors.insert(engine.clone(), e);
+        }
+    }
+    if !key_errors.is_empty() {
+        app_log!("[SETTINGS] {} API key(s) failed to persist: {:?}", key_errors.len(), key_errors.keys());
+    }
 
     // Save to disk (persist the raw settings from the frontend)
     settings::save_settings_to_disk(&normalized_settings)?;
@@ -521,7 +554,7 @@ pub async fn save_settings(
         effective_settings.primary_engine, effective_settings.show_debug
     );
 
-    Ok(())
+    Ok(SaveSettingsResponse { key_errors })
 }
 
 /// Translate text via write mode

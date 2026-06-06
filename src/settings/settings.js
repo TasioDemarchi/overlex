@@ -643,7 +643,19 @@ saveBtn.addEventListener('click', async () => {
         });
 
         // Save settings (validates hotkeys + recreates engines with the api_keys map)
-        await invoke('save_settings', { settings, apiKeys });
+        const response = await invoke('save_settings', { settings, apiKeys });
+
+        // Handle partial keyring failures (best-effort)
+        if (response && response.key_errors && Object.keys(response.key_errors).length > 0) {
+            const engines = Object.keys(response.key_errors);
+            console.warn('[settings] API key persistence errors:', response.key_errors);
+            const errorMsg = engines
+                .map(e => `${ENGINE_LABELS[e] || e}: ${response.key_errors[e]}`)
+                .join('; ');
+            showMessage(`Settings saved, but API keys for ${engines.join(', ')} could not be stored. Check console for details.`, true);
+        } else {
+            showMessage('Settings saved successfully!');
+        }
 
         // Update current settings
         currentSettings = settings;
@@ -653,8 +665,6 @@ saveBtn.addEventListener('click', async () => {
             historyOffset = 0;
             await renderHistory();
         }
-
-        showMessage('Settings saved successfully!');
     } catch (e) {
         console.error('Failed to save settings:', e);
         showMessage('Failed to save: ' + e, true);

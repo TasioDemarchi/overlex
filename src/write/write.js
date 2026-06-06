@@ -46,7 +46,7 @@ input?.focus();
 // Load current settings and update language indicator on mount
 (async function initLangIndicator() {
     try {
-        const settings = await window.__TAURI__.core.invoke('get_settings');
+        const settings = await window.__TAURI__.core.invoke('get_active_settings');
         const sourceUpper = (settings.source_lang === 'auto' ? 'AUTO' : settings.source_lang.toUpperCase());
         const targetUpper = settings.target_lang.toUpperCase();
         langDisplay.textContent = `${sourceUpper} → ${targetUpper}`;

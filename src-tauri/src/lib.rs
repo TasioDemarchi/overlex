@@ -566,6 +566,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_settings,
+            commands::get_active_settings,
             commands::save_settings,
             commands::swap_languages,
             commands::translate_text,
