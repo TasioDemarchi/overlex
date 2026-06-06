@@ -178,7 +178,7 @@ let __currentEngine = '—';
 
 (async function initDebugLine() {
     try {
-        const settings = await window.__TAURI__?.core?.invoke('get_settings');
+        const settings = await window.__TAURI__?.core?.invoke('get_active_settings');
         if (settings) {
             __currentEngine = ENGINE_LABELS[settings.primary_engine] || settings.primary_engine || '—';
             if (settings.show_debug) {
