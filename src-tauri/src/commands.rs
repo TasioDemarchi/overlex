@@ -184,6 +184,10 @@ pub struct GameProfile {
     pub ocr_preprocessing: Option<bool>,
     #[serde(default)]
     pub ocr_binarize: Option<bool>,
+    /// User-editable lore/terminology per profile. Wrapped into the final
+    /// system prompt by `build_context_prompt` when this profile is active.
+    #[serde(default)]
+    pub context_prompt: Option<String>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -583,6 +587,27 @@ pub async fn translate_text(
         }
     };
 
+    // Build context_prompt from active profile
+    let context_prompt = {
+        let info = active_game_state.info.lock().unwrap();
+        match (&info.process_name, &info.matched_profile) {
+            (game_name, Some(profile_name)) => {
+                let profile = settings
+                    .profiles
+                    .iter()
+                    .find(|p| &p.display_name == profile_name);
+                let profile_prompt = profile.and_then(|p| p.context_prompt.as_deref());
+                build_context_prompt(
+                    game_name.as_deref(),
+                    profile_prompt,
+                    &settings.source_lang,
+                    &settings.target_lang,
+                )
+            }
+            _ => None,
+        }
+    };
+
     // Call translation chain (acquire read lock, clone Arc, release lock before async call)
     let chain = translation_state.chain.read().unwrap().clone();
     let result = match chain
@@ -591,6 +616,7 @@ pub async fn translate_text(
             &settings.source_lang,
             &settings.target_lang,
             context.as_ref(),
+            context_prompt.as_deref(),
         )
         .await
     {
@@ -842,6 +868,27 @@ pub async fn ocr_capture_region(
         }
     };
 
+    // Build context_prompt from active profile
+    let context_prompt = {
+        let info = active_game_state.info.lock().unwrap();
+        match (&info.process_name, &info.matched_profile) {
+            (game_name, Some(profile_name)) => {
+                let profile = settings
+                    .profiles
+                    .iter()
+                    .find(|p| &p.display_name == profile_name);
+                let profile_prompt = profile.and_then(|p| p.context_prompt.as_deref());
+                build_context_prompt(
+                    game_name.as_deref(),
+                    profile_prompt,
+                    &settings.source_lang,
+                    &settings.target_lang,
+                )
+            }
+            _ => None,
+        }
+    };
+
     // 7. Translate via chain (acquire read lock, clone Arc, release lock before async call)
     let chain = translation_state.chain.read().unwrap().clone();
     let translation_result = match chain
@@ -850,6 +897,7 @@ pub async fn ocr_capture_region(
             &settings.source_lang,
             &settings.target_lang,
             context.as_ref(),
+            context_prompt.as_deref(),
         )
         .await
     {
@@ -962,6 +1010,27 @@ pub async fn translate_chat(
         }
     };
 
+    // Build context_prompt from active profile
+    let context_prompt = {
+        let info = active_game_state.info.lock().unwrap();
+        match (&info.process_name, &info.matched_profile) {
+            (game_name, Some(profile_name)) => {
+                let profile = settings
+                    .profiles
+                    .iter()
+                    .find(|p| &p.display_name == profile_name);
+                let profile_prompt = profile.and_then(|p| p.context_prompt.as_deref());
+                build_context_prompt(
+                    game_name.as_deref(),
+                    profile_prompt,
+                    &settings.source_lang,
+                    &settings.target_lang,
+                )
+            }
+            _ => None,
+        }
+    };
+
     // Call translation chain (acquire read lock, clone Arc, release lock before async call)
     let chain = translation_state.chain.read().unwrap().clone();
     let result = chain
@@ -970,6 +1039,7 @@ pub async fn translate_chat(
             &settings.source_lang,
             &settings.target_lang,
             context.as_ref(),
+            context_prompt.as_deref(),
         )
         .await
         .map_err(|e| {
@@ -1643,6 +1713,46 @@ pub async fn toggle_debug(
 }
 
 // ============================================================================
+// Context Prompt Builder
+// ============================================================================
+
+/// Build a final system prompt from optional game context and a profile's
+/// user-editable lore/terminology. Returns `None` when there is no useful
+/// context to include (no game name AND no profile prompt).
+pub fn build_context_prompt(
+    game_name: Option<&str>,
+    profile_prompt: Option<&str>,
+    source_lang: &str,
+    target_lang: &str,
+) -> Option<String> {
+    if game_name.is_none() && profile_prompt.is_none() {
+        return None;
+    }
+
+    let mut prompt = format!(
+        "You are translating from {} to {}.",
+        source_lang, target_lang
+    );
+
+    if let Some(name) = game_name {
+        prompt.push_str(&format!(" Game: '{}'.", name));
+    }
+
+    if let Some(p) = profile_prompt {
+        prompt.push(' ');
+        prompt.push_str(p);
+        // Ensure the prompt ends with a period for clean concatenation
+        if !p.ends_with('.') {
+            prompt.push('.');
+        }
+    }
+
+    prompt.push_str(" Preserve game-specific terminology and character names.");
+
+    Some(prompt)
+}
+
+// ============================================================================
 // Tests
 // ============================================================================
 
@@ -1660,6 +1770,7 @@ mod tests {
             primary_engine: None,
             ocr_preprocessing: None,
             ocr_binarize: None,
+            context_prompt: None,
         };
 
         // Case-insensitive matching should work for both uppercase and mixed-case queries
@@ -1691,6 +1802,7 @@ mod tests {
             primary_engine: None,
             ocr_preprocessing: None,
             ocr_binarize: None,
+            context_prompt: None,
         };
 
         // All variants should match case-insensitively
@@ -1724,6 +1836,7 @@ mod tests {
             primary_engine: Some("gemini".to_string()),  // Override
             ocr_preprocessing: None,             // Don't override
             ocr_binarize: Some(true),            // Override
+            context_prompt: None,
         };
 
         let result = apply_profile_overrides(&base_settings, &profile);
@@ -1756,5 +1869,57 @@ mod tests {
         assert_eq!(settings.source_lang, "en");
         assert_eq!(settings.target_lang, "es");
         assert_eq!(settings.primary_engine, "google_gtx"); // migrated from old `engine` field
+    }
+
+    // --- build_context_prompt tests ---
+
+    #[test]
+    fn test_build_context_prompt_no_game_no_prompt_returns_none() {
+        let result = build_context_prompt(None, None, "en", "es");
+        assert!(result.is_none(), "Should return None when no game name and no prompt");
+    }
+
+    #[test]
+    fn test_build_context_prompt_with_game_name() {
+        let result = build_context_prompt(Some("poe2.exe"), None, "English", "Spanish");
+        let prompt = result.expect("Should return Some when game name is provided");
+        assert!(prompt.contains("English to Spanish"));
+        assert!(prompt.contains("'poe2.exe'"));
+        assert!(prompt.contains("game-specific terminology"));
+        // Should NOT have the lore prompt section (just source/target + game name)
+    }
+
+    #[test]
+    fn test_build_context_prompt_with_profile_prompt() {
+        let lore = "This is a dark fantasy RPG. Key characters: Geralt, Yennefer. Preserve monster names.";
+        let result = build_context_prompt(None, Some(lore), "en", "es");
+        let prompt = result.expect("Should return Some when profile_prompt is provided");
+        assert!(prompt.contains("English to Spanish"));
+        assert!(prompt.contains("dark fantasy RPG"));
+        assert!(prompt.contains("Geralt"));
+        assert!(prompt.contains("game-specific terminology"));
+        // Should NOT contain a game name
+        assert!(!prompt.contains("Game:"));
+    }
+
+    #[test]
+    fn test_build_context_prompt_both_game_and_prompt() {
+        let lore = "Sci-fi universe. Key terms: 'Geth', 'Omni-tool', 'Spectre'.";
+        let result = build_context_prompt(Some("MassEffect.exe"), Some(lore), "English", "Spanish");
+        let prompt = result.expect("Should return Some when both are provided");
+        assert!(prompt.contains("English to Spanish"));
+        assert!(prompt.contains("'MassEffect.exe'"));
+        assert!(prompt.contains("Geth"));
+        assert!(prompt.contains("Omni-tool"));
+        assert!(prompt.contains("game-specific terminology"));
+    }
+
+    #[test]
+    fn test_build_context_prompt_profile_prompt_already_ends_with_period() {
+        let lore = "Translation reference for Chapter 3 only.";
+        let result = build_context_prompt(Some("game.exe"), Some(lore), "ja", "en");
+        let prompt = result.expect("Should return Some");
+        // Should not double the period
+        assert!(!prompt.contains(".."));
     }
 }

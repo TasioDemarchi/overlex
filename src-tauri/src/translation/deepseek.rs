@@ -112,13 +112,19 @@ impl TranslationEngine for DeepSeekAdapter {
         source: &str,
         target: &str,
         context: Option<&TranslationContext>,
+        context_prompt: Option<&str>,
     ) -> Result<TranslationResult, TranslationError> {
         let api_key = self
             .api_key
             .as_ref()
             .ok_or(TranslationError::InvalidApiKey)?;
 
-        let system_instruction = Self::build_system_instruction(source, target, context);
+        let mut system_instruction = Self::build_system_instruction(source, target, context);
+
+        // Merge context_prompt into the system instruction if available
+        if let Some(prompt) = context_prompt {
+            system_instruction.push_str(&format!("\nGame context: {}", prompt));
+        }
 
         let url = "https://api.deepseek.com/chat/completions";
 

@@ -133,11 +133,28 @@ pub fn run() {
             let settings = settings::load_settings();
             let settings_for_hotkey = settings.clone();
 
-            // Initialize translation engines based on settings (dynamic factory)
-            // All supported engines are free and require no registration:
-            // google_gtx (default), mymemory
+            // Initialize translation engines based on settings (dynamic factory).
+            // Load API keys explicitly from Credential Manager for any enabled
+            // paid engines so they are available to the translation chain on startup.
             let enabled_engines = settings.enabled_engines.clone();
-            let engines_map = translation::create_all_engines(&enabled_engines, &HashMap::new());
+            let mut startup_api_keys: HashMap<String, String> = HashMap::new();
+            for engine_key in &enabled_engines {
+                if translation::PAID_ENGINES.contains(&engine_key.as_str()) {
+                    match settings::get_api_key(engine_key) {
+                        Ok(key) if !key.is_empty() => {
+                            startup_api_keys.insert(engine_key.clone(), key);
+                            app_log!("[SETUP] Loaded API key for {} from Credential Manager", engine_key);
+                        }
+                        Ok(_) => {
+                            app_log!("[SETUP] Empty API key for {} in Credential Manager — engine may not work", engine_key);
+                        }
+                        Err(e) => {
+                            app_log!("[SETUP] No API key for {}: {}", engine_key, e);
+                        }
+                    }
+                }
+            }
+            let engines_map = translation::create_all_engines(&enabled_engines, &startup_api_keys);
             let chain = TranslationChain::new(
                 &settings.primary_engine,
                 engines_map.clone(),
@@ -270,7 +287,18 @@ pub fn run() {
                     // Step 4: Rebuild engines and chain if primary or enabled_engines changed (lock 4).
                     if current_primary != effective_settings.primary_engine {
                         let enabled = effective_settings.enabled_engines.clone();
-                        let new_engines = crate::translation::create_all_engines(&enabled, &HashMap::new());
+                        // Load API keys explicitly from Credential Manager for any enabled paid engines.
+                        let mut switch_api_keys: HashMap<String, String> = HashMap::new();
+                        for engine_key in &enabled {
+                            if crate::translation::PAID_ENGINES.contains(&engine_key.as_str()) {
+                                if let Ok(key) = crate::settings::get_api_key(engine_key) {
+                                    if !key.is_empty() {
+                                        switch_api_keys.insert(engine_key.clone(), key);
+                                    }
+                                }
+                            }
+                        }
+                        let new_engines = crate::translation::create_all_engines(&enabled, &switch_api_keys);
                         let new_chain = crate::translation::TranslationChain::new(
                             &effective_settings.primary_engine,
                             new_engines.clone(),
@@ -309,6 +337,24 @@ pub fn run() {
                     // Step 7: Emit settings-changed so frontend updates engine/language display.
                     let _ = app_handle_game.emit("settings-changed", &effective_settings);
                 });
+
+                // Hydrate active settings with profile overrides for the
+                // current foreground game on startup. This eliminates the
+                // ~1-second window between startup and the first poll where
+                // translations would ignore per-game profile settings.
+                if let Some(settings_state) = app.try_state::<SettingsState>() {
+                    let profiles = settings_state.saved_defaults.lock().unwrap().profiles.clone();
+                    if !profiles.is_empty() {
+                        let payload = game_detection::detect_current_game(&profiles);
+                        app_log!(
+                            "[SETUP] Hydration: process={:?}, profile={:?}, fullscreen={}",
+                            payload.process_name, payload.matched_profile, payload.fullscreen_exclusive
+                        );
+                        if payload.matched_profile.is_some() {
+                            let _ = app.handle().emit("game-changed", &payload);
+                        }
+                    }
+                }
             }
 
             // Register global hotkeys with loaded settings

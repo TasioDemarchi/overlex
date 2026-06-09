@@ -57,6 +57,7 @@ impl TranslationEngine for DeepLAdapter {
         source: &str,
         target: &str,
         context: Option<&TranslationContext>,
+        context_prompt: Option<&str>,
     ) -> Result<TranslationResult, TranslationError> {
         let api_key = self
             .api_key
@@ -72,12 +73,16 @@ impl TranslationEngine for DeepLAdapter {
 
         let target_lang = target.to_uppercase();
 
-        // Build context string if game context is available
-        let context_str = context.and_then(|ctx| {
-            ctx.process_name
-                .as_ref()
-                .map(|proc| format!("Game: {}", proc))
-        });
+        // Build context string: prefer context_prompt, fall back to process_name
+        let context_str = context_prompt
+            .map(|s| s.to_string())
+            .or_else(|| {
+                context.and_then(|ctx| {
+                    ctx.process_name
+                        .as_ref()
+                        .map(|proc| format!("Game: {}", proc))
+                })
+            });
 
         let request = DeepLRequest {
             text: vec![text],

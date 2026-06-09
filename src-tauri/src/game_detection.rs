@@ -117,6 +117,106 @@ fn is_fullscreen_exclusive(hwnd: HWND) -> bool {
 }
 
 // ---------------------------------------------------------------------------
+// One-shot detection
+// ---------------------------------------------------------------------------
+
+/// Get the current foreground game info (process name, fullscreen status,
+/// matched profile) in a single synchronous call.
+///
+/// Used at startup to immediately hydrate active settings with profile
+/// overrides for the game the user might already be playing, eliminating
+/// the ~1-second gap before the first poll cycle completes.
+pub fn detect_current_game(profiles: &[crate::commands::GameProfile]) -> GameChangedPayload {
+    let hwnd = unsafe { GetForegroundWindow() };
+
+    if hwnd.0.is_null() {
+        return GameChangedPayload {
+            process_name: None,
+            fullscreen_exclusive: false,
+            matched_profile: None,
+        };
+    }
+
+    // Resolve process name
+    let mut pid: u32 = 0;
+    let _tid = unsafe { GetWindowThreadProcessId(hwnd, Some(&mut pid)) };
+
+    if pid == 0 {
+        return GameChangedPayload {
+            process_name: None,
+            fullscreen_exclusive: false,
+            matched_profile: None,
+        };
+    }
+
+    let process_name: Option<String> = match unsafe {
+        OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, BOOL(0), pid)
+    } {
+        Ok(handle) => {
+            let mut buffer = vec![0u16; 260];
+            let mut size = buffer.len() as u32;
+            let result = unsafe {
+                QueryFullProcessImageNameW(
+                    handle,
+                    PROCESS_NAME_WIN32,
+                    PWSTR::from_raw(buffer.as_mut_ptr()),
+                    &mut size,
+                )
+            };
+            let _ = unsafe { windows::Win32::Foundation::CloseHandle(handle) };
+
+            match result {
+                Ok(()) => {
+                    let full_path = String::from_utf16_lossy(&buffer[..size as usize]);
+                    let file_name = extract_filename(&full_path);
+                    if let Some(ref name) = file_name {
+                        if name.eq_ignore_ascii_case("overlex.exe") {
+                            return GameChangedPayload {
+                                process_name: None,
+                                fullscreen_exclusive: false,
+                                matched_profile: None,
+                            };
+                        }
+                    }
+                    file_name
+                }
+                Err(_) => None,
+            }
+        }
+        Err(_) => {
+            let fullscreen = is_fullscreen_exclusive(hwnd);
+            return GameChangedPayload {
+                process_name: None,
+                fullscreen_exclusive: fullscreen,
+                matched_profile: None,
+            };
+        }
+    };
+
+    let fullscreen = is_fullscreen_exclusive(hwnd);
+
+    let matched_profile = process_name.as_ref().and_then(|name| {
+        profiles.iter().find_map(|profile| {
+            if profile
+                .process_names
+                .iter()
+                .any(|p| p.to_lowercase() == name.to_lowercase())
+            {
+                Some(profile.display_name.clone())
+            } else {
+                None
+            }
+        })
+    });
+
+    GameChangedPayload {
+        process_name,
+        fullscreen_exclusive: fullscreen,
+        matched_profile,
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Core: spawn_detector
 // ---------------------------------------------------------------------------
 

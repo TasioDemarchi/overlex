@@ -43,6 +43,7 @@ pub trait TranslationEngine: Send + Sync {
         source: &str,
         target: &str,
         context: Option<&TranslationContext>,
+        context_prompt: Option<&str>,
     ) -> Result<TranslationResult, TranslationError>;
 
     fn name(&self) -> &str;

@@ -81,6 +81,7 @@ impl TranslationEngine for TranslationChain {
         source: &str,
         target: &str,
         context: Option<&TranslationContext>,
+        context_prompt: Option<&str>,
     ) -> Result<TranslationResult, TranslationError> {
         let mut last_error: Option<TranslationError> = None;
 
@@ -98,7 +99,7 @@ impl TranslationEngine for TranslationChain {
 
             let engine_name = engine.name().to_string();
 
-            match engine.translate(text, source, target, context).await {
+            match engine.translate(text, source, target, context, context_prompt).await {
                 Ok(mut result) => {
                     // Annotate with chain-level metadata
                     let is_fallback = engine_key != &self.primary;
@@ -179,6 +180,7 @@ mod tests {
             _source: &str,
             _target: &str,
             _context: Option<&TranslationContext>,
+            _context_prompt: Option<&str>,
         ) -> Result<TranslationResult, TranslationError> {
             if self.succeed {
                 Ok(TranslationResult {
@@ -222,7 +224,7 @@ mod tests {
 
         let chain = TranslationChain::new("gemini", engines, &enabled);
 
-        let result = chain.translate("hello", "en", "es", None).await.unwrap();
+        let result = chain.translate("hello", "en", "es", None, None).await.unwrap();
         assert_eq!(result.engine_used, "Gemini");
         assert!(!result.fallback);
         assert_eq!(result.translated, "[Gemini] hello");
@@ -246,7 +248,7 @@ mod tests {
 
         let chain = TranslationChain::new("gemini", engines, &enabled);
 
-        let result = chain.translate("hello", "en", "es", None).await.unwrap();
+        let result = chain.translate("hello", "en", "es", None, None).await.unwrap();
         assert_eq!(result.engine_used, "DeepL");
         assert!(result.fallback);
     }
@@ -269,7 +271,7 @@ mod tests {
 
         let chain = TranslationChain::new("gemini", engines, &enabled);
 
-        let result = chain.translate("hello", "en", "es", None).await.unwrap();
+        let result = chain.translate("hello", "en", "es", None, None).await.unwrap();
         assert_eq!(result.engine_used, "Google Translate");
         assert!(result.fallback);
     }
@@ -286,7 +288,7 @@ mod tests {
 
         let chain = TranslationChain::new("gemini", engines, &enabled);
 
-        let result = chain.translate("hello", "en", "es", None).await;
+        let result = chain.translate("hello", "en", "es", None, None).await;
         assert!(result.is_err());
     }
 
@@ -328,7 +330,7 @@ mod tests {
         // mymemory is primary, google_gtx is still in fallback as last resort
         assert_eq!(chain.fallback_order, vec!["mymemory", "google_gtx"]);
 
-        let result = chain.translate("hello", "en", "es", None).await.unwrap();
+        let result = chain.translate("hello", "en", "es", None, None).await.unwrap();
         assert_eq!(result.engine_used, "MyMemory");
         assert!(!result.fallback);
     }
@@ -344,7 +346,7 @@ mod tests {
 
         assert_eq!(chain.fallback_order, vec!["google_gtx"]);
 
-        let result = chain.translate("hello", "en", "es", None).await.unwrap();
+        let result = chain.translate("hello", "en", "es", None, None).await.unwrap();
         assert_eq!(result.engine_used, "Google Translate");
         assert!(!result.fallback);
     }

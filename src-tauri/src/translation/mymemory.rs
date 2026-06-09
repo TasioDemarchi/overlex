@@ -85,6 +85,7 @@ impl TranslationEngine for MyMemoryAdapter {
         source: &str,
         target: &str,
         _context: Option<&TranslationContext>,
+        _context_prompt: Option<&str>,
     ) -> Result<TranslationResult, TranslationError> {
         let lang_pair = format!("{}|{}", source, target);
 

@@ -38,6 +38,7 @@ impl TranslationEngine for GoogleGtxAdapter {
         source: &str,
         target: &str,
         _context: Option<&TranslationContext>,
+        _context_prompt: Option<&str>,
     ) -> Result<TranslationResult, TranslationError> {
         // Build the request with properly URL-encoded query parameters
         let response = self
