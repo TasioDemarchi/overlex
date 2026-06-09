@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.8.5] - 2026-06-09
+
+### Fixed
+- Game Profile UI not rendering saved profiles on app restart. The `list_profiles` and `get_active_game` Tauri commands now use the existing `invokeWithRetry` helper (same pattern as `get_settings`) to handle transient "state not managed" errors on startup. Also: `closeProfileForm()` is now always called in a `finally` block in `saveProfile`, so the form closes even if the post-save re-fetch fails. Defensive `closeProfileForm()` call added to DOMContentLoaded to guarantee correct initial state.
+
 ## [0.8.4] - 2026-06-09
 
 ### Changed

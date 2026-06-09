@@ -399,17 +399,20 @@ async function saveProfile() {
     try {
         if (editingProfile) {
             await invoke('update_profile', { profile });
+            // Update local array optimistically (match by original display_name)
+            const idx = profiles.findIndex(p => p.display_name === editingProfile.display_name);
+            if (idx >= 0) profiles[idx] = profile;
         } else {
             await invoke('add_profile', { profile });
+            // Push optimistically — renderProfiles() works even without a re-fetch
+            profiles.push(profile);
         }
-
-        // Refresh list from backend
-        profiles = await invoke('list_profiles');
-        renderProfiles();
-        closeProfileForm();
         showMessage(editingProfile ? 'Profile updated' : 'Profile added');
     } catch (e) {
         showMessage('Failed to save profile: ' + e, true);
+    } finally {
+        renderProfiles();
+        closeProfileForm();
     }
 }
 
@@ -701,8 +704,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     // --- Load profiles ---
+    closeProfileForm();
     try {
-        profiles = await invoke('list_profiles');
+        profiles = await invokeWithRetry('list_profiles');
         renderProfiles();
     } catch (e) {
         console.error('Failed to load profiles:', e);
@@ -710,7 +714,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // --- Load active game info ---
     try {
-        activeGameInfo = await invoke('get_active_game');
+        activeGameInfo = await invokeWithRetry('get_active_game');
         updateBanner();
     } catch (e) {
         console.error('Failed to get active game:', e);
