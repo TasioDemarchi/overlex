@@ -1,8 +1,8 @@
 # OverLex — Product Requirements Document
 
-> **Version**: 1.0
-> **Date**: 2026-04-17
-> **Status**: Draft
+> **Version**: 1.1
+> **Date**: 2026-06-09 (updated)
+> **Status**: Post-MVP, active development
 
 ---
 
@@ -70,19 +70,31 @@ Beyond gaming, any user working with foreign-language content (documents, websit
 - **Position**: Configurable (corner of screen or near selection area)
 
 ### 4.4 Translation Engine
-- **Default (MVP)**: Free cloud translation API (LibreTranslate public instance or similar) — requires internet
-- **Why cloud for MVP**: Offline engines (Argos Translate) consume 100MB+ RAM when loaded, violating the < 50MB constraint for mid/low-end PCs
-- **Extensible**: Architecture must allow plugging in additional engines (DeepL, Google Translate, offline engines) via settings
-- **Initial languages**: Spanish <-> English (bidirectional)
-- **Future**: Expandable to any language pair; offline engine as optional mode (with RAM trade-off warning to user)
+- **Default (current)**: Google GTX (free, no API key) — changed from LibreTranslate post-MVP
+- **Fallback chain**: primary engine → other enabled paid engines → Google GTX (last resort). MyMemory is excluded from fallback chain (only used as primary).
+- **Why cloud**: Offline engines (Argos Translate) consume 100MB+ RAM when loaded, violating the < 50MB constraint for mid/low-end PCs
+- **Extensible**: Architecture supports plugging in additional engines via trait-based TranslationEngine pattern
+- **Supported engines**: Google GTX (default, free), MyMemory (free), Gemini (API key), DeepL (API key), DeepSeek (API key)
+- **AI context**: Gemini, DeepSeek, and DeepL accept game context (process name, profile name, custom prompt) for domain-aware translation
+- **Initial languages**: Spanish <-> English (bidirectional), with support for 25+ languages
+- **Future**: Offline engine as optional mode (with RAM trade-off warning to user)
 
 ### 4.5 Settings
 - Configurable hotkeys for each mode
 - Source and target language selection
-- Translation engine selection (default: free engine)
-- API key input for premium engines (optional)
+- Translation engine selection (engine + enabled engine list)
+- API key input for premium engines (optional, stored in Windows Credential Manager)
 - Overlay position and auto-dismiss timeout
 - Start minimized / start with Windows (optional)
+- Game profiles (see 4.6)
+- Show debug toggle (in-memory log viewer)
+
+### 4.6 Game Profiles with AI Context
+- **Purpose**: Each game profile stores overrides for language, engine, and OCR settings that auto-apply when the game is detected. Additionally, profiles can include a custom AI prompt that gives context about the game to AI-powered engines (Gemini, DeepSeek, DeepL).
+- **Auto-detection**: Background polling detects the foreground window process name every 1s and matches against configured game profiles.
+- **Profile overrides**: Profile fields (source_lang, target_lang, primary_engine, ocr options) override the saved defaults when the game is active. Defaults are never modified.
+- **Custom AI prompt**: Each profile can include a free-text prompt describing the game's lore, characters, terminology, and translation preferences. This prompt is sent to AI engines as system context, improving translation quality for game-specific terms.
+- **Fallback on no match**: When no game profile matches, the active settings revert to saved defaults (no stale overrides).
 
 ---
 
@@ -96,13 +108,13 @@ Beyond gaming, any user working with foreign-language content (documents, websit
 | **Performance** | Must run smoothly on mid/low-end PCs without affecting game FPS. Target: < 50MB RAM idle, < 1% CPU idle, < 5% CPU during OCR capture (brief spike). No background polling or continuous screen capture |
 | **Target hardware** | Mid/low-end gaming PCs (e.g. 8GB RAM, integrated or entry-level GPU). OverLex must never compete with the game for resources |
 | **OCR** | Windows built-in OCR API (Windows.Media.Ocr) — zero extra size, pre-installed on Windows 10/11. Requires target language pack installed in Windows settings |
-| **Default translation** | Cloud-based for MVP (requires internet). Offline mode as future option with higher RAM trade-off |
+| **Default translation** | Google GTX (free, no API key) with adaptive fallback chain. Offline mode as future option with higher RAM trade-off |
 
 ---
 
 ## 6. Out of Scope (MVP)
 
-- Translation history / vocabulary tracker
+- Translation history / vocabulary tracker [OBSOLETO: History with SQLite + FTS5 was implemented post-MVP]
 - Gamification or learning features
 - Multi-platform (macOS, Linux)
 - Fullscreen exclusive game support
@@ -171,7 +183,8 @@ For a v1.0 personal release:
 
 ## 10. Future Considerations (Post-MVP)
 
-- Translation history with search
+- Translation history with search [DONE: SQLite + FTS5 history implemented in v0.8.x]
+- Advanced AI context prompts per game profile [IN PROGRESS: per-profile custom prompts for Gemini/DeepSeek/DeepL]
 - Vocabulary tracker / flashcard integration
 - Additional language pairs
 - Premium tier with advanced engines or features
@@ -204,8 +217,9 @@ For a v1.0 personal release:
 | **Frontend** | HTML/CSS/JS (Vanilla) | Overlay UI, settings panel — simple and beginner-friendly |
 | **Backend** | Rust (Tauri core) | Global hotkeys, window management, screen capture, OCR integration |
 | **OCR** | Windows OCR API (Windows.Media.Ocr) | Built-in, zero bloat, fast, handles game fonts well |
-| **Translation (MVP)** | LibreTranslate (public cloud API) | Free, good quality, 0 RAM footprint, < 500ms response |
-| **Translation (Future)** | Pluggable: DeepL, Google Translate, Argos Translate (offline) | User choice via settings |
+| **Translation (default)** | Google GTX (free, no API key) | 0 RAM footprint, < 500ms response, no registration required |
+| **Translation (paid)** | Gemini, DeepL, DeepSeek (API key required) | Higher quality, accept game context for domain-aware translation |
+| **Translation (fallback)** | Adaptive chain: primary → other paid → Google GTX | MyMemory excluded from fallback (only as primary) |
 | **Installer** | Tauri bundler (NSIS) | Native Windows installer |
 
 > Tech stack confirmed during exploration phase (2026-04-17).
