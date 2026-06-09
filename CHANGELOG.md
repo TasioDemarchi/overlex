@@ -5,7 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.8.4] - 2026-06-09
+
+### Changed
+- API keys now stored in plain JSON file (%APPDATA%/overlex/api_keys.json) instead of Windows Credential Manager. Resolves silent fallback to Google Translate when process elevation changes between sessions.
+
+### Removed
+- `keyring` crate dependency
+
+### Added
+- User-visible warning when paid engines have no API key configured (was previously silent)
+
+### Migration Notes
+- After upgrading to v0.8.4, API keys must be re-entered in Settings. The settings panel will show a warning banner on first launch listing which engines need configuration.
 
 ## [0.8.3] - 2026-06-09
 

@@ -134,7 +134,7 @@ pub fn run() {
             let settings_for_hotkey = settings.clone();
 
             // Initialize translation engines based on settings (dynamic factory).
-            // Load API keys explicitly from Credential Manager for any enabled
+            // Load API keys from JSON file store for any enabled
             // paid engines so they are available to the translation chain on startup.
             let enabled_engines = settings.enabled_engines.clone();
             let mut startup_api_keys: HashMap<String, String> = HashMap::new();
@@ -143,16 +143,31 @@ pub fn run() {
                     match settings::get_api_key(engine_key) {
                         Ok(key) if !key.is_empty() => {
                             startup_api_keys.insert(engine_key.clone(), key);
-                            app_log!("[SETUP] Loaded API key for {} from Credential Manager", engine_key);
+                            app_log!("[SETUP] Loaded API key for {} from API keys store", engine_key);
                         }
                         Ok(_) => {
-                            app_log!("[SETUP] Empty API key for {} in Credential Manager — engine may not work", engine_key);
+                            app_log!("[SETUP] Empty API key for {} in API keys store — engine may not work", engine_key);
                         }
                         Err(e) => {
                             app_log!("[SETUP] No API key for {}: {}", engine_key, e);
                         }
                     }
                 }
+            }
+            // Check for missing API keys on enabled paid engines — emit warning to frontend
+            let mut missing_keys: Vec<&str> = Vec::new();
+            for engine_key in &enabled_engines {
+                if translation::PAID_ENGINES.contains(&engine_key.as_str())
+                    && !startup_api_keys.contains_key(engine_key.as_str())
+                {
+                    missing_keys.push(engine_key.as_str());
+                }
+            }
+            if !missing_keys.is_empty() {
+                app_log!("[SETUP] Missing API keys for: {:?}", missing_keys);
+                let _ = app.handle().emit("api-key-missing", serde_json::json!({
+                    "missing": missing_keys,
+                }));
             }
             let engines_map = translation::create_all_engines(&enabled_engines, &startup_api_keys);
             let chain = TranslationChain::new(
@@ -287,7 +302,7 @@ pub fn run() {
                     // Step 4: Rebuild engines and chain if primary or enabled_engines changed (lock 4).
                     if current_primary != effective_settings.primary_engine {
                         let enabled = effective_settings.enabled_engines.clone();
-                        // Load API keys explicitly from Credential Manager for any enabled paid engines.
+                        // Load API keys from JSON file store for any enabled paid engines.
                         let mut switch_api_keys: HashMap<String, String> = HashMap::new();
                         for engine_key in &enabled {
                             if crate::translation::PAID_ENGINES.contains(&engine_key.as_str()) {

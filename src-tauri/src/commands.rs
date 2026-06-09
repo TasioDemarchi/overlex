@@ -422,8 +422,8 @@ pub async fn get_active_settings(
     Ok(settings)
 }
 
-/// Return type for save_settings with per-engine keyring error map.
-/// Empty map = total success (including keyring).
+/// Return type for save_settings with per-engine API key error map.
+/// Empty map = total success (including API key storage).
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SaveSettingsResponse {
     /// Per-engine errors from Credential Manager operations.

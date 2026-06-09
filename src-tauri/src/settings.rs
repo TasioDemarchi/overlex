@@ -1,7 +1,7 @@
-// Settings module - load/save settings.json
+// Settings module - load/save settings.json + API keys JSON file
 
 use std::path::PathBuf;
-use keyring::Entry;
+use serde::{Deserialize, Serialize};
 use crate::commands::Settings;
 use crate::app_log;
 
@@ -74,25 +74,109 @@ pub fn validate_hotkeys(settings: &Settings) -> Result<(), String> {
     Ok(())
 }
 
-/// Get API key from Windows Credential Manager (DPAPI-protected)
+// ---------------------------------------------------------------------------
+// API keys JSON file storage (replaces Windows Credential Manager / keyring)
+// ---------------------------------------------------------------------------
+
+/// API keys storage schema (stored at %APPDATA%/overlex/api_keys.json)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ApiKeysStore {
+    version: u32,
+    keys: std::collections::HashMap<String, String>,
+}
+
+impl Default for ApiKeysStore {
+    fn default() -> Self {
+        Self {
+            version: 1,
+            keys: std::collections::HashMap::new(),
+        }
+    }
+}
+
+/// Get the API keys file path: %APPDATA%/overlex/api_keys.json
+fn api_keys_path() -> Result<PathBuf, String> {
+    let appdata = std::env::var("APPDATA").map_err(|_| "APPDATA not set".to_string())?;
+    Ok(PathBuf::from(appdata).join("overlex").join("api_keys.json"))
+}
+
+/// Load the API keys store from disk. Creates a fresh store if the file
+/// does not exist. On corrupt JSON: backup to .bak and start fresh.
+fn load_api_keys_store() -> ApiKeysStore {
+    let path = match api_keys_path() {
+        Ok(p) => p,
+        Err(_) => return ApiKeysStore::default(),
+    };
+
+    if !path.exists() {
+        // First read — create with empty keys
+        let store = ApiKeysStore::default();
+        let _ = write_api_keys_store_atomic(&store);
+        return store;
+    }
+
+    match std::fs::read_to_string(&path) {
+        Ok(content) => match serde_json::from_str::<ApiKeysStore>(&content) {
+            Ok(store) => store,
+            Err(e) => {
+                // Corrupt — backup and reset
+                app_log!("Corrupt api_keys.json: {e}. Backing up and resetting.");
+                let bak = path.with_extension("json.bak");
+                let _ = std::fs::rename(&path, &bak);
+                let store = ApiKeysStore::default();
+                let _ = write_api_keys_store_atomic(&store);
+                store
+            }
+        },
+        Err(_) => ApiKeysStore::default(),
+    }
+}
+
+/// Write the API keys store atomically: write to .tmp, then rename.
+fn write_api_keys_store_atomic(store: &ApiKeysStore) -> Result<(), String> {
+    let path = api_keys_path()?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create api_keys dir: {e}"))?;
+    }
+
+    let tmp_path = path.with_extension("json.tmp");
+    let json = serde_json::to_string_pretty(store)
+        .map_err(|e| format!("Serialize api_keys failed: {e}"))?;
+
+    // Write to temp file first
+    std::fs::write(&tmp_path, &json)
+        .map_err(|e| format!("Write api_keys.tmp failed: {e}"))?;
+
+    // Atomic rename
+    std::fs::rename(&tmp_path, &path)
+        .map_err(|e| format!("Rename api_keys.tmp failed: {e}"))?;
+
+    Ok(())
+}
+
+/// Get an API key for a given engine from the JSON file store.
 pub fn get_api_key(engine: &str) -> Result<String, String> {
-    let service = format!("overlex-{engine}");
-    let entry = Entry::new(&service, "overlex").map_err(|e| format!("Credential error: {e}"))?;
-    entry.get_password().map_err(|e| format!("No API key stored for {engine}: {e}"))
+    let store = load_api_keys_store();
+    store
+        .keys
+        .get(engine)
+        .cloned()
+        .ok_or_else(|| format!("No API key stored for {engine}"))
 }
 
-/// Store API key via Windows Credential Manager (DPAPI-protected)
+/// Store an API key for a given engine in the JSON file store.
 pub fn set_api_key(engine: &str, api_key: &str) -> Result<(), String> {
-    let service = format!("overlex-{engine}");
-    let entry = Entry::new(&service, "overlex").map_err(|e| format!("Credential error: {e}"))?;
-    entry.set_password(api_key).map_err(|e| format!("Failed to store API key: {e}"))
+    let mut store = load_api_keys_store();
+    store.keys.insert(engine.to_string(), api_key.to_string());
+    write_api_keys_store_atomic(&store)
 }
 
-/// Delete API key from Windows Credential Manager
+/// Delete an API key for a given engine from the JSON file store.
 pub fn delete_api_key(engine: &str) -> Result<(), String> {
-    let service = format!("overlex-{engine}");
-    let entry = Entry::new(&service, "overlex").map_err(|e| format!("Credential error: {e}"))?;
-    entry.delete_credential().map_err(|e| format!("Failed to delete API key: {e}"))
+    let mut store = load_api_keys_store();
+    store.keys.remove(engine);
+    write_api_keys_store_atomic(&store)
 }
 
 /// Ensure settings are valid:
@@ -274,5 +358,143 @@ mod tests {
         let json = r#"{"display_name":"Test","process_names":["test.exe"],"primary_engine":"gemini"}"#;
         let profile: crate::commands::GameProfile = serde_json::from_str(json).unwrap();
         assert_eq!(profile.primary_engine, Some("gemini".to_string()));
+    }
+
+    // --- API keys JSON file storage tests ---
+
+    /// RAII guard that cleans up the test temp directory on drop.
+    struct TestDirGuard(std::path::PathBuf);
+    impl Drop for TestDirGuard {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// Override APPDATA for test isolation. Returns the temp dir path and a guard.
+    fn override_appdata_for_test() -> (TestDirGuard, std::path::PathBuf) {
+        let tmp = std::env::temp_dir().join(format!("overlex_test_{}", std::process::id()));
+        // Clean up any leftover from previous failed test run
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::env::set_var("APPDATA", &tmp);
+        (TestDirGuard(tmp.clone()), tmp)
+    }
+
+    #[test]
+    fn test_api_keys_store_create_read_write() {
+        let (_guard, tmp) = override_appdata_for_test();
+
+        // Start fresh — no keys file exists yet
+        let key_path = tmp.join("overlex").join("api_keys.json");
+        assert!(!key_path.exists());
+
+        // Write a key
+        set_api_key("gemini", "test-key-123").unwrap();
+        assert!(key_path.exists());
+
+        // Read it back
+        let key = get_api_key("gemini").unwrap();
+        assert_eq!(key, "test-key-123");
+
+        // Write another key
+        set_api_key("deepseek", "sk-deepseek").unwrap();
+        let key2 = get_api_key("deepseek").unwrap();
+        assert_eq!(key2, "sk-deepseek");
+
+        // Both keys exist
+        assert_eq!(get_api_key("gemini").unwrap(), "test-key-123");
+        assert_eq!(get_api_key("deepseek").unwrap(), "sk-deepseek");
+    }
+
+    #[test]
+    fn test_api_keys_store_corruption_recovery() {
+        let (_guard, tmp) = override_appdata_for_test();
+
+        // Write valid store first
+        set_api_key("gemini", "initial-key").unwrap();
+        assert_eq!(get_api_key("gemini").unwrap(), "initial-key");
+
+        // Corrupt the file by writing garbage
+        let key_path = tmp.join("overlex").join("api_keys.json");
+        std::fs::write(&key_path, "NOT VALID JSON {{{").unwrap();
+
+        // Reading should detect corruption and start fresh
+        let result = get_api_key("gemini");
+        assert!(result.is_err()); // gemini key is gone
+
+        // Verify .bak was created
+        let bak_path = tmp.join("overlex").join("api_keys.json.bak");
+        assert!(bak_path.exists());
+
+        // The original file should exist again (recreated fresh)
+        assert!(key_path.exists());
+        let content = std::fs::read_to_string(&key_path).unwrap();
+        assert!(content.contains("\"version\": 1"));
+        assert!(content.contains("\"keys\": {}"));
+    }
+
+    #[test]
+    fn test_api_keys_store_atomic_write() {
+        let (_guard, tmp) = override_appdata_for_test();
+
+        // Write a key
+        set_api_key("deepl", "fx-deepl-key").unwrap();
+
+        // Verify no .tmp file remains after successful write
+        let tmp_path = tmp.join("overlex").join("api_keys.json.tmp");
+        assert!(!tmp_path.exists(), ".tmp file should not exist after successful write");
+
+        // Verify the actual file exists and has correct content
+        let key_path = tmp.join("overlex").join("api_keys.json");
+        assert!(key_path.exists());
+        let key = get_api_key("deepl").unwrap();
+        assert_eq!(key, "fx-deepl-key");
+    }
+
+    #[test]
+    fn test_get_api_key_missing_engine() {
+        let (_guard, _tmp) = override_appdata_for_test();
+
+        // No keys stored yet
+        let result = get_api_key("nonexistent");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("No API key stored"));
+    }
+
+    #[test]
+    fn test_set_api_key_overwrites_existing() {
+        let (_guard, tmp) = override_appdata_for_test();
+
+        // Set initial key
+        set_api_key("gemini", "first-key").unwrap();
+        assert_eq!(get_api_key("gemini").unwrap(), "first-key");
+
+        // Overwrite with new key
+        set_api_key("gemini", "second-key").unwrap();
+        assert_eq!(get_api_key("gemini").unwrap(), "second-key");
+
+        // Verify the file only contains the latest key
+        let key_path = tmp.join("overlex").join("api_keys.json");
+        let content = std::fs::read_to_string(&key_path).unwrap();
+        assert!(content.contains("second-key"));
+        assert!(!content.contains("first-key"));
+    }
+
+    #[test]
+    fn test_delete_api_key() {
+        let (_guard, _tmp) = override_appdata_for_test();
+
+        // Set a key
+        set_api_key("gemini", "delete-me").unwrap();
+        assert!(get_api_key("gemini").is_ok());
+
+        // Delete it
+        delete_api_key("gemini").unwrap();
+        let result = get_api_key("gemini");
+        assert!(result.is_err());
+
+        // Delete a key that doesn't exist — should succeed (no-op)
+        let result2 = delete_api_key("nonexistent");
+        assert!(result2.is_ok());
     }
 }

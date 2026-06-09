@@ -129,7 +129,7 @@ This file documents key architectural decisions for OverLex. Each ADR is numbere
 ## ADR-009 — API keys in Windows Credential Manager (DPAPI)
 
 - **Date**: 2026-06-09 (retroactive)
-- **Status**: Accepted
+- **Status**: Superseded (2026-06-09 by ADR-016)
 - **Context**: API keys for paid translation engines (Gemini, DeepL, DeepSeek) are sensitive credentials. Storing them in settings.json (plaintext on disk) is a security risk. Options included environment variables (session-only), encrypted config file (need key management), and OS credential manager.
 - **Decision**: Use `keyring` crate to store API keys in Windows Credential Manager, which encrypts them with DPAPI (user-bound, machine-bound). Keys are never written to settings.json.
 - **Consequences**:
@@ -138,6 +138,7 @@ This file documents key architectural decisions for OverLex. Each ADR is numbere
   - Keys are bound to the Windows user account — no other user can access them.
   - Keys must be fetched on every engine creation (slight latency but cached in memory).
   - No cross-platform credential store (Windows-only is fine per D1).
+- **Superseded note**: The `keyring` crate wraps Windows Credential Manager via COM, which fails silently when the process elevation context changes between sessions (e.g., admin install → normal launch). There is no reliable recovery path without re-prompting the user. The failure mode is silent because `get_api_key()` returns `Err` and the translation chain falls back to google_gtx without any user-visible error. See ADR-016 for the replacement.
 
 ---
 
@@ -232,6 +233,22 @@ This file documents key architectural decisions for OverLex. Each ADR is numbere
 
 ---
 
+## ADR-016 — API keys in plain JSON file (replaces Windows Credential Manager)
+
+- **Date**: 2026-06-09
+- **Status**: Accepted
+- **Context**: The `keyring` crate (ADR-009) wraps Windows Credential Manager via COM. On some Windows configurations, especially when process elevation context changes between sessions (e.g., install as admin, launch as normal user), keyring fails silently — `get_api_key()` returns `Err` and the translation chain falls back to google_gtx with no user-visible error. For a personal single-user desktop app, a plain JSON file in `%APPDATA%` is simpler, debuggable (open in Notepad), and eliminates the entire class of COM-related failures. The user accepts a one-time re-entry of keys after the v0.8.4 upgrade.
+- **Decision**: Store API keys in `%APPDATA%/overlex/api_keys.json` with schema `{"version": 1, "keys": {"deepseek": "sk-...", "gemini": "AIza...", "deepl": "fx-..."}}`. File is created with empty `keys` on first read. Writes use atomic rename (`.tmp` → final path) to prevent corruption on crash. Corrupt files are renamed to `.bak` and recreated fresh (same pattern as `settings.json` corruption handling). No automatic migration from Credential Manager — the `api-key-missing` Tauri event notifies the user to re-enter keys in Settings.
+- **Consequences**:
+  - API keys are plaintext on disk (acceptable for single-user personal PC).
+  - Keys persist across NSIS upgrades (installer preserves `%APPDATA%` by convention).
+  - Debuggable: user can open `api_keys.json` in Notepad to verify keys exist.
+  - No COM dependency — zero silent failure modes from Windows Credential Manager.
+  - No encryption at rest. User can delete the file to remove all keys.
+  - On upgrade from v0.8.3 to v0.8.4: one-time re-entry of keys required. The `api-key-missing` event makes this discoverable on first startup.
+
+---
+
 ## Summary
 
 | ADR | Title | Key impact |
@@ -244,9 +261,11 @@ This file documents key architectural decisions for OverLex. Each ADR is numbere
 | 006 | Multi-engine fallback | Resilient translation, Google GTX as last resort |
 | 007 | Settings two-tiers | Profiles don't contaminate defaults |
 | 008 | SQLite + FTS5 | Searchable history, embedded |
-| 009 | Credential Manager | Encrypted API keys, Windows-only |
+| 009 | Credential Manager | Superseded by ADR-016 — COM failures on elevation change |
 | 010 | Game detection polling | Reliable, minimal overhead |
 | 011 | Acrylic + WS_EX_NOACTIVATE | Non-intrusive overlays |
 | 012 | In-memory log buffer | Zero I/O debugging |
-| 013 | CSP | Buggy — blocks paid engines |
+| 013 | CSP | CSP now allows all 5 engines |
 | 014 | Custom hotkey capture | Global hotkeys via Win32 |
+| 015 | Auto-generated context_prompt | Per-game lore/terminology prompts for AI engines |
+| 016 | JSON file API key storage | Plain JSON in %APPDATA%, atomic writes, corrupt recovery |
