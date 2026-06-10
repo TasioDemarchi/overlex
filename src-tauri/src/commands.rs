@@ -889,6 +889,13 @@ pub async fn ocr_capture_region(
         }
     };
 
+    // Hide freeze window IMMEDIATELY after OCR detects text, before the (slow) translation call.
+    // The result window will be shown when emit_result is called below. This decouples UI from
+    // the slow translation roundtrip — user returns to the game the moment OCR finishes.
+    if let Some(freeze_win) = app_handle.get_webview_window("freeze") {
+        let _ = freeze_win.hide();
+    }
+
     // 7. Translate via chain (acquire read lock, clone Arc, release lock before async call)
     let chain = translation_state.chain.read().unwrap().clone();
     let translation_result = match chain

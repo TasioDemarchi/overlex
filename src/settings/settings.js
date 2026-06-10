@@ -1,3 +1,4 @@
+// App version is hardcoded in index.html (#app-version) — keep in sync with src-tauri/tauri.conf.json
 // Settings panel - load/save settings via Tauri invoke
 
 const { invoke } = window.__TAURI__.core;

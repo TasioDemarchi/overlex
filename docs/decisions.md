@@ -249,6 +249,20 @@ This file documents key architectural decisions for OverLex. Each ADR is numbere
 
 ---
 
+## ADR-017 — Decoupled freeze hide from translation completion
+
+- **Date**: 2026-06-10
+- **Status**: Accepted
+- **Context**: User reported 2-5s perceived delay between region selection and return to game. Root cause: `ocr_capture_region` hides the freeze window at the END of the function, AFTER the translation completes. The translation roundtrip to Gemini/DeepSeek takes 2-5 seconds, during which the user stares at the freeze overlay (the selection rectangle). The result window was already decoupled (event-driven via `translation-result` events), but the freeze hide was not.
+- **Decision**: Hide the freeze window immediately after OCR succeeds, before the translation call. The result window is already event-driven via `emit_result` / `translation-result` events, so decoupling the freeze hide is safe — the user returns to the game in ~100ms (OCR time only), and the translation result appears later when the network call completes.
+- **Consequences**:
+  - User returns to game in ~100ms (OCR time) instead of 2-5s (OCR + translation time).
+  - Result window appears later when translation completes (unchanged behavior).
+  - Error paths unchanged — all error branches already hide the freeze independently.
+  - Existing freeze hide at end of function is kept as a safety net (no-op in normal flow).
+- **Alternatives considered**:
+  - A2: Full async refactor with `request_id` — rejected as premature abstraction for v0.8.6. The current fire-and-forget approach is simpler and sufficient for the single-window model.
+
 ## Summary
 
 | ADR | Title | Key impact |
@@ -269,3 +283,4 @@ This file documents key architectural decisions for OverLex. Each ADR is numbere
 | 014 | Custom hotkey capture | Global hotkeys via Win32 |
 | 015 | Auto-generated context_prompt | Per-game lore/terminology prompts for AI engines |
 | 016 | JSON file API key storage | Plain JSON in %APPDATA%, atomic writes, corrupt recovery |
+| 017 | Decoupled freeze hide | User returns to game immediately after OCR, not after translation |

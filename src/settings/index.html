@@ -323,6 +323,16 @@
             font-size: 0.8rem;
             color: var(--text-secondary);
         }
+        #app-version {
+            position: fixed;
+            bottom: 8px;
+            right: 12px;
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            opacity: 0.6;
+            user-select: none;
+            pointer-events: none;
+        }
     </style>
 </head>
 <body>
@@ -647,5 +657,6 @@
     </div>
 
     <script src="settings.js"></script>
+    <footer id="app-version">OverLex v0.8.6</footer>
 </body>
 </html>

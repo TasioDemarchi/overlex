@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.8.6] - 2026-06-10
+
+### Fixed
+- Freeze overlay now hides immediately after OCR detects text, before the translation roundtrip. The user returns to the game the moment text is detected, instead of waiting 2-5 seconds for the translation model to respond. The result overlay appears separately when the translation completes.
+
+### Added
+- App version displayed in Settings footer (bottom-right). Lets the user verify at a glance which version is running.
+
 ## [0.8.5] - 2026-06-09
 
 ### Fixed
