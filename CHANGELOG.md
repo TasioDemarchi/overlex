@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.9.3] - 2026-06-10
+
+### Changed
+- **Removed `api-key-missing-banner`**: the global warning banner that appeared at the top of the Settings panel when paid engines were enabled without API keys is removed. The per-engine inline status (already present under each engine's API key input) is the sole feedback mechanism for missing keys. The backend still emits the `api-key-missing` event — it's just no longer consumed by the frontend.
+- **Fixed static checkbox double-render**: the 8 static HTML checkboxes no longer have hardcoded `[ ]` text in their `<span class="cb-display">` elements. The CSS `::before` pseudo-element is now the single source of truth for bracket rendering, eliminating the `[x][ ]` visual bug.
+- **Removed `[ ]` brackets from action buttons**: all action buttons now have plain text labels (e.g., `SAVE SETTINGS`, `TEST ALL KEYS`, `EDIT`, `CLOSE`) instead of `[ SAVE SETTINGS ]`. Brackets are preserved only on window controls (`[ — ]`, `[ X ]`) and checkboxes (`[ ]`, `[x]`), where they have semantic meaning.
+- **Styled scrollbar**: added WebKit scrollbar CSS matching the terminal aesthetic (8px wide, gray `--border-strong` color, `--terminal-radius` rounding, darker on hover, green-tinted on active).
+- **Removed `<h1>OverLex Settings</h1>`**: the window title bar (added in v0.9.2) already shows the app name, making the h1 redundant.
+- **Settings footer**: version updated to v0.9.3.
+
+### Notes
+- Pure UI/UX refinements. Zero backend changes, zero new Tauri commands, no data migration. All settings, API keys, profiles, and history persist unchanged from v0.9.2.
+- The `api-key-missing` backend event is still emitted by `lib.rs` but no longer consumed by the frontend. If a future UI wants the banner back, the event is still available.
+- The `api-key-modal-close` button text changed from `[ X ]` to `CLOSE`. The `logs-modal-close` button changed from `[ CLOSE ]` to `CLOSE`.
+
 ## [0.9.2] - 2026-06-10
 
 ### Changed

@@ -1050,3 +1050,205 @@ None. Pure visual/UX refinements. Users on v0.9.1 keep all their current setting
 - Custom title bar with minimize and close buttons
 
 The app still behaves the same way: system tray to show/hide the main window, hotkeys for OCR and write modes, same settings persistence, same translation engines, same data flow.
+
+---
+
+## Refinements — v0.9.3 (appended to v0.9.0 plan, third batch)
+
+### Intent
+
+Third iteration of the UI redesign, addressing 5 issues found after user testing v0.9.2:
+
+1. **Banner dismiss X bug** — the `#api-key-missing-banner` shows a small `×` button near the top of the Settings panel (right above the first h2 "HOTKEYS"). The user finds it confusing because it's a global banner that doesn't match the per-engine inline status approach. The X button works (it dismisses the banner), but the banner reappears when the backend emits the `api-key-missing` event again.
+
+2. **Static checkboxes render `[x][ ]` double** — the CSS `::before` pseudo-element renders `[ ]` or `[x]` correctly, but the hardcoded `<span class="cb-display">[ ]</span>` text in static HTML is still visible underneath, creating a `[x][ ]` double-render effect. The dynamic checkboxes (rendered by JS) work correctly because the sub-agent cleaned those up in v0.9.2.
+
+3. **Buttons have `[ ]` brackets** — terminal aesthetic was applied too aggressively. Buttons like `[ SAVE SETTINGS ]`, `[ TEST ALL KEYS ]`, `[ HOW TO GET API KEYS ]`, `[ + ADD PROFILE ]`, `[ EDIT ]`, `[ DELETE ]`, `[ CLOSE ]`, `[ CLEAR ]` have brackets that look heavy and out of place. Remove brackets from action buttons; keep them only where they have semantic meaning (window controls and checkboxes).
+
+4. **Native scrollbar doesn't match aesthetic** — Windows default scrollbar (right side) is visible on the settings panel and inner scrollable areas (history, logs modal). It should be styled to match the terminal aesthetic (thin, gray, rounded).
+
+5. **`<h1>OverLex Settings</h1>` is redundant** — the custom window title bar already shows "OverLex Settings" at the top. The large h1 below is redundant and makes the panel feel less minimalist. Remove the h1.
+
+### Scope
+
+#### Fix 1 — Remove `api-key-missing-banner` (Issue 1)
+
+**Goal**: the global banner is replaced by inline per-engine status (which already exists in the engines-list). The user can see at a glance which engine needs a key by looking at the `<small class="engine-status">` element under each engine's API key input.
+
+**Changes to `src/settings/index.html`**:
+- **Remove** the entire `<div id="api-key-missing-banner">` block (lines 722-726 in current file)
+
+**Changes to `src/settings/settings.js`**:
+- **Remove** the `api-key-missing-banner` event listener in `DOMContentLoaded` (around lines 799-814)
+- **Remove** the `api-key-missing` event listener in the same `DOMContentLoaded` block (around lines 842-848)
+- Both are dead code once the banner is removed
+
+**No changes to backend** — the `api-key-missing` event is still emitted by `lib.rs:168` on startup. It's just no longer consumed by the frontend. Other consumers (none currently) would still work.
+
+#### Fix 2 — Remove hardcoded `[ ]` from static checkboxes (Issue 2)
+
+**Goal**: the CSS `::before` pseudo-element is the single source of truth for the bracket rendering. Remove the hardcoded text from the HTML.
+
+**Changes to `src/settings/index.html`**:
+- Find every static `<span class="cb-display">[ ]</span>` and replace with `<span class="cb-display"></span>` (empty span, CSS controls the content)
+
+**Affects 8 checkboxes**:
+- `#show-debug` (line ~810, Game Profiles section)
+- `#auto-dismiss-enabled` (line ~825, Overlay section)
+- `#ocr-preprocessing-enabled` (line ~840, OCR Pre-processing)
+- `#ocr-binarize-enabled` (line ~850, OCR Pre-processing)
+- `#history-enabled` (line ~860, History section)
+- `#start-with-windows` (line ~880, System section)
+- `#profile-ocr-preprocessing` (line ~900, Profile form)
+- `#profile-ocr-binarize` (line ~910, Profile form)
+
+**No JS changes needed** — the JS-rendered checkboxes in `renderEnginesWithKeys` were already cleaned in v0.9.2 (the `cbDisplay.textContent = '[ ]';` line was removed, the span is created empty).
+
+**Verify** the CSS still works correctly with empty span:
+```css
+.terminal-checkbox .cb-display::before { content: '[ ]'; }
+.terminal-checkbox input:checked + .cb-display::before { content: '[x]'; }
+```
+Yes — `::before` adds content before the (empty) span, so the brackets render correctly.
+
+#### Fix 3 — Remove `[ ]` brackets from action buttons (Issue 3)
+
+**Goal**: keep the terminal aesthetic (monospace font, green/gray colors, sharp corners) but remove the literal `[ ]` text from action buttons. Keep brackets only where they have semantic meaning.
+
+**Changes to `src/settings/index.html`**:
+
+**Remove brackets from these buttons**:
+- `[ SAVE SETTINGS ]` (line ~720, the main save button) → `SAVE SETTINGS`
+- `[ TEST ALL KEYS ]` (line ~836, after the engines list) → `TEST ALL KEYS`
+- `[ HOW TO GET API KEYS ]` (line ~834, above engines list) → `HOW TO GET API KEYS`
+- `[ + ADD PROFILE ]` (line ~890, Game Profiles) → `+ ADD PROFILE`
+
+**Changes to `src/settings/settings.js`**:
+
+**Remove brackets from dynamically-rendered buttons**:
+- In `renderProfiles()` function, the `[ EDIT ]` and `[ DELETE ]` buttons on each profile card → `EDIT` and `DELETE`
+
+**Changes to modals**:
+- `#api-key-modal-close` button: change inner text from `&times;` (which renders as ×) to just `CLOSE`
+- `#logs-modal-close` button (in logs modal): `&times;` → `CLOSE`
+- `#logs-modal-clear` button: `[ CLEAR ]` → `CLEAR`
+- `dismissBtn` in result overlay (HTML): `&times;` → keep as `&times;` (it's an icon, not text — but verify it still works)
+
+**KEEP brackets on these** (semantic meaning):
+- Window controls in `.window-titlebar`: `[ — ]` (minimize), `[ X ]` (close)
+- Checkbox displays: `[ ]`, `[x]`
+
+#### Fix 4 — Style the scrollbar (Issue 4)
+
+**Goal**: make the scrollbar match the terminal aesthetic.
+
+**Changes to `src/settings/index.html`**: add new CSS at the end of the `<style>` block:
+```css
+/* Custom scrollbar — terminal aesthetic */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+::-webkit-scrollbar-track {
+    background: var(--bg-secondary);
+    border-radius: var(--terminal-radius);
+}
+::-webkit-scrollbar-thumb {
+    background: var(--border-strong);
+    border-radius: var(--terminal-radius);
+}
+::-webkit-scrollbar-thumb:hover {
+    background: var(--text-secondary);
+}
+::-webkit-scrollbar-thumb:active {
+    background: var(--terminal-dim);
+}
+```
+
+**Scope**: applies to the settings panel scrollbar (body overflow) AND any inner scrollable areas (history list, logs modal content, etc.). The `::-webkit-scrollbar` selector with no prefix targets the global scrollbar for the webview, which cascades to inner elements that also have overflow.
+
+**Note**: this is WebKit-specific. On Windows, Tauri uses WebView2 which is Chromium-based, so WebKit scrollbar styling works.
+
+**Other windows** (result, write, freeze) already have custom scrollbar CSS in their own HTML files (e.g., `write/index.html:95-97`, `result/index.html:92-94`). They are not affected by this change.
+
+#### Fix 5 — Remove `<h1>OverLex Settings</h1>` (Issue 5)
+
+**Goal**: the window title bar already shows "OverLex Settings" at the top. The h1 below is redundant.
+
+**Changes to `src/settings/index.html`**:
+- **Delete** the `<h1>OverLex Settings</h1>` line (line 720 in current file)
+
+**Body padding**: the `body` has `padding: 52px 20px 20px;` (52px top for the title bar). After removing the h1, the first content (api-key-missing-banner — but we're removing that too in Fix 1) would be the first h2 "Hotkeys". The 52px top padding is still appropriate (32px titlebar + 20px gap). **No padding adjustment needed.**
+
+**No JS changes** — the h1 had no event listeners or references.
+
+### Affected Files (v0.9.3)
+
+| File | Action | Notes |
+|------|--------|-------|
+| `src/settings/index.html` | Modify | Remove api-key-missing-banner block, remove hardcoded `[ ]` from 8 checkboxes, remove brackets from 4 button labels, remove `<h1>OverLex Settings</h1>`, add scrollbar CSS |
+| `src/settings/settings.js` | Modify | Remove api-key-missing-banner event listener, remove api-key-missing event listener, remove brackets from dynamically-rendered profile edit/delete buttons |
+| `CHANGELOG.md` | Modify | Add `[0.9.3]` entry at top |
+| `docs/decisions.md` | Modify | Add ADR-022 documenting the refinements (verify the last ADR number is 021 from v0.9.2, so 022 is next) |
+| `src-tauri/tauri.conf.json` | Modify | Version bump `0.9.2` → `0.9.3` |
+| `src/settings/index.html` (footer) | Modify | `OverLex v0.9.2` → `OverLex v0.9.3` |
+
+**Total**: 0 new files, 4 modified files. Zero backend changes, zero new Tauri commands, zero new events. The `api-key-missing` event is still emitted by the backend but no longer consumed by the frontend (acceptable — it's a fire-and-forget event for UI notification, and the per-engine inline status covers the same use case).
+
+### Impact Checklist (v0.9.3)
+
+- [ ] **Banner removed**: no `api-key-missing-banner` div in the DOM, no `×` button above the HOTKEYS title
+- [ ] **Inline engine status still works**: when a paid engine is enabled without a key, the `<small class="engine-status">` shows `✗ No [Engine] API key stored`
+- [ ] **No regression in inline status**: status still appears/hides based on checkbox state (v0.9.2 Fix 3 still works)
+- [ ] **Static checkboxes**: all 8 show `[ ]` when unchecked, `[x]` when checked (no double-render)
+- [ ] **Buttons without brackets**: SAVE SETTINGS, TEST ALL KEYS, HOW TO GET API KEYS, + ADD PROFILE, EDIT, DELETE, CLOSE (modals), CLEAR (modals) all have plain text labels
+- [ ] **Window controls keep brackets**: `[ — ]` and `[ X ]` still have brackets (semantic meaning)
+- [ ] **Scrollbar styled**: thin (8px wide), gray (`--border-strong` color), rounded (`--terminal-radius`), darker on hover, green-tinted on active drag
+- [ ] **No native Windows scrollbar visible**: scrollbar matches the terminal aesthetic
+- [ ] **No h1 in settings**: the large "OverLex Settings" heading is removed; only the window title bar shows the app name
+- [ ] **Settings panel still functional**: all settings still accessible, all flows still work
+- [ ] **No regression in v0.9.2** (custom title bar, custom selects, all previous refinements)
+- [ ] **No regression in v0.9.1** (Groq engine, all 4 paid engines)
+- [ ] **No regression in v0.9.0** (UI redesign, terminal aesthetic, logs modal)
+- [ ] **No regression in earlier versions** (settings persistence, profile hydration, context_prompt, instant freeze)
+
+### Decisions (v0.9.3)
+
+- **D41 (approach)**: third batch of UI refinements to v0.9.0 plan, appended here per user request pattern.
+- **D42 (banner)**: remove the global `api-key-missing-banner` entirely. The per-engine inline status (already implemented in v0.9.0) is sufficient feedback. The user finds the global banner confusing because it duplicates per-engine info.
+- **D43 (banner backend event)**: keep emitting the `api-key-missing` event from `lib.rs:168`. It's a fire-and-forget event for UI notification. Removing the frontend listener doesn't break the backend. If a future UI wants the banner back, the event is still there.
+- **D44 (static checkboxes)**: remove hardcoded `[ ]` text from all 8 static checkboxes in `index.html`. The CSS `::before` pseudo-element is the single source of truth. JS-rendered checkboxes were already cleaned in v0.9.2.
+- **D45 (button brackets)**: remove `[ ]` brackets from all action buttons. Keep brackets only on controls with semantic meaning (window minimize/close buttons, checkbox states). The terminal aesthetic is preserved through monospace font, gray/green colors, and sharp corners — not through literal bracket characters.
+- **D46 (modal close buttons)**: change `&times;` (×) to text `CLOSE` in modals. The × character is iconic but the user wants consistent text labels. Alternative considered: keep × as an icon — rejected for consistency with the "no brackets on buttons" decision.
+- **D47 (scrollbar)**: WebKit scrollbar styling (8px wide, `--border-strong` color, `--terminal-radius` rounding). Applies globally to the settings webview via `::-webkit-scrollbar` (no prefix). Works in Tauri's WebView2 on Windows. Other windows (result, write) already have their own scrollbar CSS and are not affected.
+- **D48 (h1 removal)**: delete the `<h1>OverLex Settings</h1>` element. The custom window title bar (from v0.9.2) already displays the app name. The h1 is redundant. Body padding-top of 52px is still appropriate (32px titlebar + 20px gap).
+- **D49 (versioning)**: 0.9.3. Third iteration of UI refinements, no breaking changes, no data migration.
+- **D50 (no backend changes)**: zero Rust changes. The `api-key-missing` event is still emitted but unconsumed. All other backend behavior is unchanged.
+
+### Out of Scope (v0.9.3)
+
+- Removing the `api-key-missing` event emission from the backend — KISS, keep it for potential future use
+- Adding scrollbar styling to other windows (result, write, freeze) — they already have their own scrollbar CSS
+- Removing other redundant UI elements (e.g., the `<small>` descriptions under OCR pre-processing checkboxes) — not requested
+- Changing the window title bar to also show context (e.g., current profile name) — not requested
+- Making the settings panel collapsible (sections that expand/collapse) — not requested, KISS
+- Adding keyboard shortcut to close the window (Alt+F4 equivalent) — already handled by `on_window_event` safety net
+
+### Observations (v0.9.3)
+
+- **O15**: The user described the X as appearing "above HOTKEYS" — this matches the position of the `api-key-missing-banner` div in the DOM (right before the first h2). The banner is a global notification, not a per-window control. Removing the banner eliminates this confusion entirely.
+- **O16**: The double-render bug (`[x][ ]`) is a classic CSS+HTML collision: the CSS `::before` adds content before the span's text content. The fix (empty span + CSS content) is the standard pattern. The dynamic checkboxes were already correct in v0.9.2 because the sub-agent removed the `textContent = '[ ]'` line.
+- **O17**: Removing brackets from buttons is a stylistic decision. Some users prefer the `[ ACTION ]` terminal aesthetic. The user explicitly requested removal. We can always add them back in a future change.
+- **O18**: The scrollbar styling is WebKit-specific. On macOS or Linux (not currently targeted), the scrollbar would look native. Since the project is Windows-only (per ADR-001), this is acceptable.
+- **O19**: The `<h1>OverLex Settings</h1>` was added in v0.9.0 as part of the redesign. Removing it now is a small reversal, but the custom title bar (v0.9.2) makes it redundant. The h1 was originally there to give the panel visual identity before the title bar existed.
+
+### Migration Notes (v0.9.3)
+
+None. Pure visual/UX refinements. Users on v0.9.2 keep all their current settings, engines, API keys, profiles, history. The UI just looks different:
+- No more `api-key-missing` banner
+- Static checkboxes render correctly (`[x]` not `[x][ ]`)
+- Action buttons have plain text labels (no `[ ]` brackets)
+- Scrollbar matches the terminal aesthetic
+- No redundant `<h1>` (window title bar shows the app name)
+
+The app still behaves the same way: system tray to show/hide the main window, hotkeys for OCR and write modes, same settings persistence, same translation engines, same data flow. The `api-key-missing` backend event is still emitted but no longer shows a global banner — per-engine inline status is the only feedback mechanism for missing keys.

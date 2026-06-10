@@ -337,8 +337,8 @@ function renderProfiles() {
             <div class="profile-card-header">
                 <strong>${escapeHtml(profile.display_name)}</strong>
                 <div class="profile-card-actions">
-                    <button class="small-btn edit-profile-btn">[ EDIT ]</button>
-                    <button class="small-btn danger delete-profile-btn">[ DELETE ]</button>
+                    <button class="small-btn edit-profile-btn">EDIT</button>
+                    <button class="small-btn danger delete-profile-btn">DELETE</button>
                 </div>
             </div>
             <div class="profile-card-processes">${processTags}</div>
@@ -795,27 +795,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         console.error('Failed to load settings for show_debug:', e);
     }
 
-    // --- API key missing banner handlers ---
-    const missingBanner = document.getElementById('api-key-missing-banner');
-    const missingBannerDismiss = document.getElementById('api-key-missing-dismiss');
-    if (missingBannerDismiss) {
-        missingBannerDismiss.addEventListener('click', () => {
-            if (missingBanner) missingBanner.style.display = 'none';
-        });
-    }
-    if (missingBanner) {
-        missingBanner.addEventListener('click', (e) => {
-            // Dismiss button click handled separately — only react to banner body click
-            if (e.target === missingBannerDismiss) return;
-            // Scroll to the API key sections (first paid engine key field)
-            const firstKeyInput = document.getElementById('api-key-gemini');
-            if (firstKeyInput) {
-                firstKeyInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                firstKeyInput.focus();
-            }
-        });
-    }
-
     // --- Listen to events ---
     if (listen) {
         listen('active-game-changed', (event) => {
@@ -835,20 +814,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                 renderEnginesWithKeys(enabledEngines, primaryEngine);
             }
         }).catch(e => console.error('Failed to listen settings-changed:', e));
-
-        listen('api-key-missing', (event) => {
-            const payload = event.payload;
-            const missing = payload.missing || [];
-            if (missing.length === 0) return;
-
-            const engineNames = missing.map(e => ENGINE_LABELS[e] || e).join(', ');
-            const banner = document.getElementById('api-key-missing-banner');
-            const text = document.getElementById('api-key-missing-text');
-            if (banner && text) {
-                text.textContent = `API key required for: ${engineNames}. Click here to configure.`;
-                banner.style.display = 'block';
-            }
-        }).catch(e => console.error('Failed to listen api-key-missing:', e));
     }
 });
 
@@ -1118,7 +1083,7 @@ async function testAllEnabledKeys() {
     // Disable button during test
     if (testAllBtn) {
         testAllBtn.disabled = true;
-        testAllBtn.textContent = '[ TESTING... ]';
+        testAllBtn.textContent = 'TESTING...';
     }
     if (statusEl) {
         statusEl.textContent = 'Testing...';
@@ -1206,7 +1171,7 @@ async function testAllEnabledKeys() {
     // Re-enable button
     if (testAllBtn) {
         testAllBtn.disabled = false;
-        testAllBtn.textContent = '[ TEST ALL KEYS ]';
+        testAllBtn.textContent = 'TEST ALL KEYS';
     }
 }
 

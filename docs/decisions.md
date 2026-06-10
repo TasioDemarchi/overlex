@@ -317,6 +317,7 @@ This file documents key architectural decisions for OverLex. Each ADR is numbere
 | 019 | docs/changes/ folder for plans | Change plans live in `docs/changes/<change-name>/plan.md`, ADRs stay flat in `decisions.md` |
 | 020 | Add Groq as alternative paid engine | New Groq engine with llama-3.1-8b-instant model, OpenAI-compatible adapter, free tier, opt-in via enabled_engines |
 | 021 | v0.9.2 UI refinements | Gray palette predominance, custom selects, fixed checkbox viz, status visibility fix, help modal relocated, custom title bar |
+| 022 | v0.9.3 UI refinements | Removed api-key-missing-banner, fixed static checkbox double-render, removed brackets from action buttons, custom scrollbar, removed redundant h1 |
 
 ---
 
@@ -385,4 +386,36 @@ This file documents key architectural decisions for OverLex. Each ADR is numbere
 - **Alternatives considered**:
   - G1: Replace DeepSeek with Groq — rejected because user has not yet validated Groq quality; AHA principle says don't remove without evidence
   - G2: Add Groq as free engine (no key required) — rejected because it would silently fail for users without keys, creating a poor UX footgun
-  - G4: Remove DeepSeek, don't replace — rejected because it reduces user choice without adding value
+   - G4: Remove DeepSeek, don't replace — rejected because it reduces user choice without adding value
+
+---
+
+## ADR-022 — v0.9.3 UI refinements: banner removal, checkbox fix, button labels, scrollbar, h1 removal
+
+- **Date**: 2026-06-10
+- **Status**: Accepted
+- **Context**: After shipping v0.9.2 (gray predominance, custom selects, custom title bar), user identified 5 additional issues requiring refinement:
+  1. The `#api-key-missing-banner` showed a confusing `×` button above the first h2. The per-engine inline status (already present since v0.9.0) provides sufficient feedback about missing API keys.
+  2. Static HTML checkboxes had hardcoded `<span class="cb-display">[ ]</span>` text that rendered underneath the CSS `::before` pseudo-element content, creating a double-render effect (`[x][ ]`).
+  3. Action buttons (`[ SAVE SETTINGS ]`, `[ TEST ALL KEYS ]`, etc.) had literal bracket characters that looked heavy and out of place in the UI.
+  4. The native Windows scrollbar didn't match the terminal aesthetic of the rest of the panel.
+  5. The `<h1>OverLex Settings</h1>` heading was redundant because the custom window title bar (added in v0.9.2) already displays the app name.
+- **Decision**:
+  1. **Remove the `api-key-missing-banner`**: Delete the entire `<div id="api-key-missing-banner">` block from `index.html`. Remove the banner dismiss handler and the `api-key-missing` event listener from `settings.js`. The backend still emits the event (`lib.rs:168`) — it becomes fire-and-forget, available for future use.
+  2. **Fix static checkboxes**: Replace `<span class="cb-display">[ ]</span>` with `<span class="cb-display"></span>` (empty span) in all 8 static checkboxes in `index.html`. CSS `::before` pseudo-elements are the single source of truth for `[ ]` / `[x]` rendering.
+  3. **Remove brackets from action buttons**: Plain text labels on all action buttons (SAVE SETTINGS, TEST ALL KEYS, HOW TO GET API KEYS, + ADD PROFILE, EDIT, DELETE, CLOSE, CLEAR, SAVE, CANCEL, LOAD MORE, EXPORT JSON, EXPORT CSV, CLEAR ALL, VIEW LOGS). Brackets preserved only on window controls (`[ — ]`, `[ X ]`) and checkboxes (`[ ]`, `[x]`), where they have semantic meaning. Modal close buttons changed from `[ X ]` / `[ CLOSE ]` to plain `CLOSE`.
+  4. **Custom scrollbar CSS**: Added `::-webkit-scrollbar` rules (8px wide, `--border-strong` color, `--terminal-radius` rounding, hover/active effects). Applies globally to the settings webview (WebView2 on Windows).
+  5. **Remove `<h1>` heading**: Deleted the `<h1>OverLex Settings</h1>` line from `index.html`. Body padding of 52px top is still appropriate (32px titlebar + 20px gap). No JS references to the h1 existed.
+- **Consequences**:
+  - Cleaner, more minimalist settings panel without redundant elements.
+  - Per-engine inline status is the sole mechanism for API key feedback — simpler, more contextual.
+  - Static checkboxes now render correctly (no double-render bug).
+  - Action buttons are visually lighter without brackets, while still clearly identifiable.
+  - Scrollbar matches the terminal aesthetic across the entire settings webview.
+  - Zero backend changes — all changes are CSS/HTML/JS only.
+  - No data migration — users on v0.9.2 keep all settings, keys, profiles, history.
+- **Alternatives considered**:
+  - A1: Redesign the banner instead of removing it — rejected by user, per-engine inline status is sufficient.
+  - A2: Use JS to control static checkbox text — rejected in favor of CSS `::before` (already the pattern from v0.9.2, simpler to just empty the spans).
+  - A3: Keep brackets on some action buttons — rejected by user, wanted consistent plain text on all actions.
+  - A4: Use `&times;` (×) for modal close buttons — rejected for consistency with the no-brackets decision.
