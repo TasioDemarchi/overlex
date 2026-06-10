@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.9.4] - 2026-06-10
+
+### Changed
+- **Removed `[ ]` from window control buttons**: minimize button now shows `—`, close button shows `X` without surrounding brackets. Buttons remain functional (minimize to taskbar, hide window).
+- **Fixed custom select wrappers loading stale values**: refactored `DOMContentLoaded` initialization order so native select values are set BEFORE custom terminal-select wrappers are created. Fixes the bug where source-lang, target-lang, overlay-position, and primary-engine dropdowns displayed the HTML default instead of the saved value after restart.
+- **Settings footer**: version updated to v0.9.4.
+
+### Fixed
+- **Overlay position dropdown displays saved value on restart**: the root cause was that `createTerminalSelect` was called before `invoke('get_settings')` resolved, capturing the initial HTML option ("Near Selection") instead of the loaded value ("Top Left" or whatever the user saved). Fixed by reordering: settings load → `setNativeSelectValues` → `createTerminalSelect`.
+- **Same fix applies to source-lang, target-lang, and primary-engine selects**: all 4 custom selects now correctly reflect saved values on app restart.
+
+### Notes
+- Bug fix + minor UI refinement. Zero backend changes, zero new Tauri commands, no data migration. All settings, API keys, profiles, and history persist unchanged from v0.9.3.
+- Added `setNativeSelectValues(settings)` helper function to centralize native select value-setting logic.
+- Added defensive `createTerminalSelect` refresh after save to ensure wrappers always match saved values.
+
 ## [0.9.3] - 2026-06-10
 
 ### Changed

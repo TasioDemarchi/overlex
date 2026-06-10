@@ -1252,3 +1252,185 @@ None. Pure visual/UX refinements. Users on v0.9.2 keep all their current setting
 - No redundant `<h1>` (window title bar shows the app name)
 
 The app still behaves the same way: system tray to show/hide the main window, hotkeys for OCR and write modes, same settings persistence, same translation engines, same data flow. The `api-key-missing` backend event is still emitted but no longer shows a global banner — per-engine inline status is the only feedback mechanism for missing keys.
+
+---
+
+## Refinements — v0.9.4 (appended to v0.9.0 plan, fourth batch)
+
+### Intent
+
+Fourth iteration of UI refinements + 1 bug fix. User reported 2 issues after testing v0.9.3:
+
+1. **Window control buttons still have `[ ]` brackets** — `[ — ]` and `[ X ]` in the title bar. The user explicitly requested removal in v0.9.3 ("Quitar los corchetes de TODOS los botones") but the v0.9.3 plan explicitly preserved them for window controls ("Keep brackets only where they have semantic meaning (window controls and checkboxes)"). The user now wants the brackets removed from window controls too.
+
+2. **Settings UI does not reflect the saved `overlay_position` after restart** — the user changes the overlay position (e.g., from "Near Selection" to "Top Left"), saves, restarts the app. The result window correctly appears at the saved position (proving the setting persists in disk). But when the user opens Settings, the dropdown displays "Near Selection" instead of "Top Left". The user thinks "the position doesn't persist" because the UI doesn't show the saved value. Root cause: the custom `terminal-select` wrapper is created in `DOMContentLoaded` BEFORE the settings are loaded from the backend, so the wrapper's `.ts-current` textContent captures the initial HTML option value (the first `<option>` in the HTML, which is "Near Selection") instead of the loaded value.
+
+The bug is a classic initialization order issue. The fix is to re-create the wrappers AFTER loading settings, OR to call the existing `createTerminalSelect` function again after setting `nativeSelect.value`.
+
+### Scope
+
+#### Fix 1 — Remove `[ ]` from window control buttons (Issue 1)
+
+**Goal**: remove the literal `[ ]` characters from the minimize and close buttons in the window title bar. Keep the visual semantic (em-dash for minimize, X for close) but without the surrounding brackets.
+
+**Changes to `src/settings/index.html`** (lines 735-736):
+
+**Before**:
+```html
+<button class="window-btn minimize-btn" title="Minimize" aria-label="Minimize">[ — ]</button>
+<button class="window-btn close-btn" title="Close" aria-label="Close">[ X ]</button>
+```
+
+**After**:
+```html
+<button class="window-btn minimize-btn" title="Minimize" aria-label="Minimize">—</button>
+<button class="window-btn close-btn" title="Close" aria-label="Close">X</button>
+```
+
+**No CSS or JS changes needed** — the button styling (`.window-btn` class) handles all visual aspects. The `title` and `aria-label` attributes provide accessibility info (hover tooltip and screen reader).
+
+#### Fix 2 — Custom select wrappers reflect loaded settings (Issue 2)
+
+**Goal**: when Settings opens, the custom `terminal-select` wrappers should display the actual saved value from disk, not the initial HTML option value.
+
+**Root cause analysis**:
+
+In `src/settings/settings.js`:
+
+1. **Line 543-545** (in `DOMContentLoaded`): creates wrappers for all `select[data-terminal-select]` elements
+   ```js
+   document.querySelectorAll('select[data-terminal-select]').forEach(sel => {
+       createTerminalSelect(sel);
+   });
+   ```
+   At this point, the native `<select>` elements have their default value (the first `<option>` in the HTML). The wrapper's `.ts-current` textContent captures this initial value.
+
+2. **Line 612** (later in the same `DOMContentLoaded`): loads settings from backend and sets the native select value
+   ```js
+   overlayPositionSelect.value = settings.overlay_position || 'near-selection';
+   ```
+   This updates the native select's value, but the wrapper was already created with the old value. The wrapper's `.ts-current` textContent is now stale.
+
+The same issue affects `#source-lang`, `#target-lang`, and `#primary-engine` (all have `data-terminal-select`).
+
+**Solution**: refactor the initialization order so settings are loaded BEFORE wrappers are created. This requires splitting the existing monolithic `DOMContentLoaded` handler into two phases:
+
+1. **Phase 1** (before wrappers): set native select values from `get_settings()` invoke
+2. **Phase 2** (after values set): create the custom wrappers
+
+**Changes to `src/settings/settings.js`**:
+
+**A. Find the existing `DOMContentLoaded` handler** (around line 491 in the file).
+
+**B. Move the `createTerminalSelect` initialization block** (currently lines 542-545) to AFTER the settings load block (currently around lines 600-630).
+
+**C. Add a helper function** to set native select values from a settings object:
+```js
+function setNativeSelectValues(settings) {
+    if (settings.source_lang) sourceLangSelect.value = settings.source_lang;
+    if (settings.target_lang) targetLangSelect.value = settings.target_lang;
+    if (settings.overlay_position) overlayPositionSelect.value = settings.overlay_position;
+    // primary-engine is set via renderPrimaryDropdown() which already exists
+}
+```
+
+**D. Call `setNativeSelectValues(settings)` BEFORE `createTerminalSelect(...)` calls**.
+
+**E. Reorder the `DOMContentLoaded` handler**:
+```js
+document.addEventListener('DOMContentLoaded', async () => {
+    // ... existing setup code (event listeners for engine help, log modal, etc.) ...
+
+    // Load settings from backend FIRST
+    try {
+        const settings = await invoke('get_settings');
+        if (settings) {
+            setNativeSelectValues(settings);
+            // ... existing settings load code (checkboxes, etc.) ...
+        }
+    } catch (e) {
+        console.error('Failed to load settings:', e);
+    }
+
+    // NOW create the wrappers (with native select values already set)
+    document.querySelectorAll('select[data-terminal-select]').forEach(sel => {
+        createTerminalSelect(sel);
+    });
+
+    // ... rest of existing setup ...
+});
+```
+
+**Note**: the existing code uses `invokeWithRetry` for `get_settings` (line 588 area). Use the same pattern for consistency.
+
+**F. Verify `renderPrimaryDropdown()` still works** — this function is called in `renderEnginesWithKeys()` (line ~1020 area) and it calls `createTerminalSelect(primaryEngineSelect)` at the end (line 1024). Since `renderEnginesWithKeys()` is called AFTER the initial settings load, the primary engine wrapper will be created with the correct initial value. No change needed here.
+
+**G. After settings save, force a wrapper refresh** (defensive): in the save handler, after `await invoke('save_settings', ...)`, call `createTerminalSelect(overlayPositionSelect)` (and others) to ensure the wrappers show the just-saved values. This is technically not needed (the value doesn't change during save), but it's a defensive measure that makes the code more robust.
+
+**Verification approach** (for the sub-agent):
+
+1. Read the current `DOMContentLoaded` handler
+2. Find where `invoke('get_settings')` is called and where `createTerminalSelect` is called
+3. Move the `createTerminalSelect` call to AFTER the settings load
+4. Add the `setNativeSelectValues` helper
+5. Test that all 4 selects show the correct value on first load
+
+### Affected Files (v0.9.4)
+
+| File | Action | Notes |
+|------|--------|-------|
+| `src/settings/index.html` | Modify | Remove `[ ]` from window control buttons (lines 735-736) |
+| `src/settings/settings.js` | Modify | Refactor `DOMContentLoaded` initialization order: load settings BEFORE creating wrappers. Add `setNativeSelectValues` helper. |
+| `CHANGELOG.md` | Modify | Add `[0.9.4]` entry at top |
+| `docs/decisions.md` | Modify | Add ADR-023 documenting the fix (verify last ADR is 022 from v0.9.3) |
+| `src-tauri/tauri.conf.json` | Modify | Version bump `0.9.3` → `0.9.4` |
+| `src/settings/index.html` (footer) | Modify | `OverLex v0.9.3` → `OverLex v0.9.4` |
+
+**Total**: 0 new files, 4 modified files. Zero backend changes, zero new Tauri commands.
+
+### Impact Checklist (v0.9.4)
+
+- [ ] **Window buttons without brackets**: minimize button shows `—`, close button shows `X` (no surrounding `[ ]`)
+- [ ] **Buttons still functional**: minimize still minimizes, close still hides
+- [ ] **Settings load before wrappers**: the 4 custom selects (source-lang, target-lang, primary-engine, overlay-position) display the actual saved values, not the initial HTML defaults
+- [ ] **Overlay position persists correctly**: change to "Top Left", save, restart, open Settings → dropdown shows "Top Left"
+- [ ] **Result window appears at saved position**: change to "Top Left", save, restart, trigger OCR → result window appears at top-left
+- [ ] **All 4 selects work**: change each select, save, restart, verify each shows the saved value
+- [ ] **Primary engine still works**: change primary engine, save, restart, verify dropdown shows saved engine
+- [ ] **Profile engine dropdown**: still uses native browser chrome (out of scope for v0.9.4, same as v0.9.3)
+- [ ] **No regression in v0.9.3** (no api-key-missing banner, checkboxes correct, buttons no brackets except window, scrollbar styled, no h1)
+- [ ] **No regression in v0.9.2** (custom title bar, custom selects, etc.)
+- [ ] **No regression in v0.9.1** (Groq engine)
+- [ ] **No regression in v0.9.0** (UI redesign)
+
+### Decisions (v0.9.4)
+
+- **D51 (approach)**: fourth batch of UI refinements + 1 bug fix, appended to existing plan file per user pattern.
+- **D52 (window button brackets)**: remove `[ ]` from window control buttons. The em-dash and X characters alone are sufficient visual cues. The brackets were a v0.9.2 plan choice to keep "semantic meaning" but the user has consistently requested removal of all brackets from buttons.
+- **D53 (settings load order)**: refactor `DOMContentLoaded` to load settings BEFORE creating custom select wrappers. This ensures the wrappers are created with the correct initial values. Alternative considered: call `createTerminalSelect` again after `invoke('get_settings')` resolves — rejected because the re-creation is unnecessary complexity when the correct order is to set values first.
+- **D54 (helper function)**: add `setNativeSelectValues(settings)` helper to centralize the value-setting logic. Keeps the `DOMContentLoaded` handler clean.
+- **D55 (no backend changes)**: zero Rust changes. The bug is purely in frontend initialization order.
+- **D56 (defensive refresh after save)**: in the save handler, after `await invoke('save_settings', ...)`, call `createTerminalSelect` on each affected select. This is defensive and ensures the wrapper reflects the saved value (though it should already match).
+- **D57 (versioning)**: 0.9.4. Fourth iteration of UI refinements + 1 bug fix, no breaking changes, no data migration.
+
+### Out of Scope (v0.9.4)
+
+- Profile form selects (`#profile-source-lang`, `#profile-target-lang`, `#profile-engine`) — still use native browser chrome. Same as v0.9.3.
+- Adding scrollbar styling to result/write windows — already done in their own HTML.
+- Removing the `[ ]` brackets from dynamically-generated text like `TESTING...` in the test-all flow — already done in v0.9.3.
+- Adding keyboard navigation to custom selects — out of scope since v0.9.2.
+- Refactoring the monolithic `DOMContentLoaded` handler into smaller functions — could be a future refactor but not needed for this fix.
+
+### Observations (v0.9.4)
+
+- **O20**: The bug was a side effect of the v0.9.2 custom-select implementation. The `createTerminalSelect` function was added in `DOMContentLoaded` before the `get_settings` invoke, so the wrappers captured stale default values. This was not caught in v0.9.2 testing because the user probably didn't change select values and restart between v0.9.2 and v0.9.3 — the bug only manifests after the user changes a value, saves, and restarts.
+- **O21**: The `createTerminalSelect` function is designed to be re-creatable (it has a teardown step for existing wrappers at the top of the function). This is why the v0.9.2 plan also worked when called from `renderPrimaryDropdown` — the function handles the re-creation case correctly. The bug was just in the initialization order, not in the function itself.
+- **O22**: This bug also affected `#source-lang`, `#target-lang`, and `#primary-engine`, but the user only noticed it on `#overlay-position` because that's the one they actively changed. Once the fix is applied, all 4 selects will correctly reflect saved values.
+
+### Migration Notes (v0.9.4)
+
+None. Bug fix + UI refinement. Users on v0.9.3 keep all their current settings, engines, API keys, profiles, history. The UI just:
+- Window buttons lose their `[ ]` brackets
+- Custom select dropdowns correctly show saved values on app restart
+
+The result window will continue to appear at the saved position (this was already working in v0.9.3 — the bug was only in the Settings UI display, not in the runtime behavior).

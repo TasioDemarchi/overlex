@@ -500,6 +500,14 @@ async function invokeWithRetry(cmd, args, maxRetries = 3, delayMs = 500) {
     }
 }
 
+// Helper to set native select values from loaded settings
+// primary-engine is set via renderPrimaryDropdown() which already exists
+function setNativeSelectValues(settings) {
+    if (settings.source_lang) sourceLangSelect.value = settings.source_lang;
+    if (settings.target_lang) targetLangSelect.value = settings.target_lang;
+    if (settings.overlay_position) overlayPositionSelect.value = settings.overlay_position;
+}
+
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', async () => {
     // --- Window controls (custom title bar) ---
@@ -538,11 +546,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         });
     }
-
-    // --- Custom terminal selects ---
-    document.querySelectorAll('select[data-terminal-select]').forEach(sel => {
-        createTerminalSelect(sel);
-    });
 
     // Setup hotkey capture
     setupHotkeyCapture(ocrHotkeyInput);
@@ -601,15 +604,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Populate form fields
         ocrHotkeyInput.value = settings.ocr_hotkey || '';
         writeHotkeyInput.value = settings.write_hotkey || '';
-        sourceLangSelect.value = settings.source_lang || 'auto';
-        targetLangSelect.value = settings.target_lang || 'es';
+
+        // Set native select values (before creating wrappers)
+        setNativeSelectValues(settings);
 
         // Render engine UI with new multi-engine design
         const enabledEngines = settings.enabled_engines || ['google_gtx', 'mymemory'];
         const primaryEngine = settings.primary_engine || 'google_gtx';
         renderEnginesWithKeys(enabledEngines, primaryEngine);
-
-        overlayPositionSelect.value = settings.overlay_position || 'near-selection';
 
         // Handle auto-dismiss: if timeout > 0, check and show; if 0, uncheck and hide
         if (settings.overlay_timeout_ms > 0) {
@@ -657,6 +659,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         historyEnabledCheckbox.checked = true;
         historyPanel.style.display = 'block';
     }
+
+    // --- Custom terminal selects ---
+    // Created AFTER settings are loaded so wrappers capture the actual saved values
+    document.querySelectorAll('select[data-terminal-select]').forEach(sel => {
+        createTerminalSelect(sel);
+    });
 });
 
 // Save button handler
@@ -729,6 +737,12 @@ saveBtn.addEventListener('click', async () => {
 
         // Update current settings
         currentSettings = settings;
+
+        // Refresh terminal select wrappers to reflect saved values
+        createTerminalSelect(overlayPositionSelect);
+        createTerminalSelect(sourceLangSelect);
+        createTerminalSelect(targetLangSelect);
+        // primary-engine is already refreshed by renderPrimaryDropdown
 
         // Refresh history view if enabled
         if (settings.history_enabled) {

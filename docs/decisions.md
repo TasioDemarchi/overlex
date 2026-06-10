@@ -418,4 +418,30 @@ This file documents key architectural decisions for OverLex. Each ADR is numbere
   - A1: Redesign the banner instead of removing it — rejected by user, per-engine inline status is sufficient.
   - A2: Use JS to control static checkbox text — rejected in favor of CSS `::before` (already the pattern from v0.9.2, simpler to just empty the spans).
   - A3: Keep brackets on some action buttons — rejected by user, wanted consistent plain text on all actions.
-  - A4: Use `&times;` (×) for modal close buttons — rejected for consistency with the no-brackets decision.
+   - A4: Use `&times;` (×) for modal close buttons — rejected for consistency with the no-brackets decision.
+
+---
+
+## ADR-023 — v0.9.4 refinements: window button brackets, custom select initialization order
+
+- **Date**: 2026-06-10
+- **Status**: Accepted
+- **Context**: After shipping v0.9.3 (banner removal, checkbox fix, bracket removal from action buttons, scrollbar, h1 removal), user identified 2 issues:
+  1. The window control buttons (`[ — ]` and `[ X ]`) still had literal bracket characters that were preserved from v0.9.2. The user explicitly requested all brackets be removed from buttons.
+  2. The custom terminal-select wrappers were created BEFORE settings were loaded from the backend, causing them to display stale HTML default values instead of the actual saved values from disk. The user noticed this specifically on the overlay-position dropdown (e.g., saved "Top Left" but UI showed "Near Selection").
+- **Decision**:
+  1. **Remove `[ ]` from window controls**: Changed minimize button text from `[ — ]` to `—` and close button from `[ X ]` to `X` in `index.html`. No CSS or JS changes needed — the `.window-btn` class handles all visual styling. The `title` and `aria-label` attributes remain for accessibility.
+  2. **Fix custom select initialization order**: Refactored the monolithic `DOMContentLoaded` handler so that settings are loaded and native select values are set BEFORE the custom terminal-select wrappers are created. The fix involves:
+     - Adding a `setNativeSelectValues(settings)` helper function that centralizes value-setting for `source-lang`, `target-lang`, and `overlay-position` selects (primary-engine is handled separately by `renderPrimaryDropdown`).
+     - Moving the `createTerminalSelect` initialization block from its position near the top of `DOMContentLoaded` to AFTER the `invoke('get_settings')` call and value assignments.
+     - Adding a defensive `createTerminalSelect` refresh in the save handler to ensure wrappers always reflect the just-saved values.
+- **Consequences**:
+  - Window buttons are visually lighter without brackets, consistent with the v0.9.3 decision to remove brackets from all action buttons.
+  - All 4 custom selects (source-lang, target-lang, primary-engine, overlay-position) now correctly display saved values on app restart.
+  - The `createTerminalSelect` function already handles re-wrapping (teardown step at top), so defensive re-calls are safe.
+  - Zero backend changes — all changes are CSS/HTML/JS only.
+  - No data migration — users on v0.9.3 keep all settings, keys, profiles, history.
+- **Alternatives considered**:
+  - A1: Call `createTerminalSelect` again AFTER `invoke('get_settings')` resolves instead of reordering — rejected because it creates wrappers with wrong values first (brief flash of incorrect value) and is unnecessarily complex when the correct fix is to set values before creating wrappers.
+  - A2: Use a mutation observer to watch native select value changes — rejected as over-engineered for a simple initialization order bug.
+  - A3: Keep brackets on window controls — rejected by user, wanted consistent removal across ALL buttons.
