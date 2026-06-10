@@ -1124,6 +1124,14 @@ pub fn log_from_frontend(level: String, message: String) {
     add_log(&level, &message);
 }
 
+/// Clear the in-memory log buffer (called from Settings > View Logs modal)
+#[tauri::command]
+pub fn clear_logs() {
+    if let Ok(mut buffer) = LOG_BUFFER.lock() {
+        buffer.clear();
+    }
+}
+
 /// Get fullscreen screenshot as base64 (for freeze overlay)
 #[tauri::command]
 pub async fn get_screenshot_base64() -> Result<String, String> {

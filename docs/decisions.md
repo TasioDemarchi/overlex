@@ -263,6 +263,35 @@ This file documents key architectural decisions for OverLex. Each ADR is numbere
 - **Alternatives considered**:
   - A2: Full async refactor with `request_id` — rejected as premature abstraction for v0.8.6. The current fire-and-forget approach is simpler and sufficient for the single-window model.
 
+---
+
+## ADR-018 — Settings panel visual redesign — hybrid console + terminal aesthetic
+
+- **Date**: 2026-06-10
+- **Status**: Accepted
+- **Context**: The Settings panel used a generic dark theme with blue accents and native HTML form controls. While functional, it felt generic and didn't match the "tool for power users" nature of OverLex. The UI needed a distinctive identity that signals "this is a developer-grade tool, not a casual app."
+- **Decision**: Adopt a hybrid aesthetic combining:
+  1. **Console-app baseline** (Image 1 reference): gray dark theme (`#1a1a2e`, `#16213e`, `#0f0f1a`), sans-serif headings, two-column language distribution, generous spacing.
+  2. **Terminal accent** (Image 2 reference): monospace body text (labels, inputs, buttons, cards), ASCII-style checkboxes `[x] [ ]`, prompt-style `>` prefix on user-input fields, green accent (`#51cf66`) for terminal cues.
+  - Blue base (`#4e9af1`) for general accents (focus rings, links, primary actions).
+  - Green (`#51cf66`) reserved for terminal-specific cues: checkboxes, `>` prefix, section dividers, success states.
+  - Custom CSS checkboxes using `:checked + .cb-display` to swap `[ ]` → `[x]` (native `<input type="checkbox">` preserved in DOM for accessibility and form values).
+  - Logs converted from inline panel to modal with color-coded log lines.
+  - **Exception to the "no backend changes" rule**: The new `[ CLEAR ]` button in the logs modal required a new `clear_logs` Tauri command. The in-memory log buffer (`LOG_BUFFER` in `commands.rs`) previously had no clear path — only `get_recent_logs` (read) and `add_log` (write). The clear feature is 5 lines of Rust (`pub fn clear_logs() { LOG_BUFFER.lock().unwrap().clear(); }` + 1-line registration in `lib.rs`). The frontend was already calling `invoke('clear_logs')` based on the planned feature, but the backend command was missing — this was caught during post-implementation verification and fixed before commit. The plan and CHANGELOG were updated to reflect this.
+  - All existing IDs and event signatures preserved — zero new Tauri commands **except** `clear_logs` (see above). All settings save logic and event listeners work unchanged.
+- **Consequences**:
+  - More opinionated aesthetic — some users may prefer all-sans or all-mono.
+  - Terminal-style checkboxes add ~30 lines of CSS but eliminate reliance on browser-native checkbox rendering (which varies across Windows versions).
+  - Custom `::before` pseudo-elements for `>` prefix on inputs — requires wrapper divs but keeps HTML IDs unchanged.
+  - Engines + API Keys consolidated into one dynamic section, reducing the number of static HTML elements.
+  - Logs converted from inline panel to modal — better UX for long log outputs but requires modal open/close JS. Clear button now works via new `clear_logs` Tauri command.
+  - The plan was revised after the sub-agent implementation to document the `clear_logs` backend addition. This is the minimum viable backend change to make the logs modal feature complete.
+- **Alternatives considered**:
+  - A1: All-sans-serif (current approach) — rejected as too generic, doesn't differentiate OverLex from other apps.
+  - A2: All-monospace (pure terminal) — rejected as too harsh for headings and would make the panel feel like a raw terminal instead of a structured settings panel.
+  - A3: Keep per-engine Test Key buttons — rejected because a single `[ TEST ALL KEYS ]` button is more convenient and reduces visual clutter.
+  - A4: Make logs clear client-side only (no backend command) — rejected because the next modal open would re-fetch the old logs, making "clear" useless. Backend clear is the only correct solution.
+
 ## Summary
 
 | ADR | Title | Key impact |
@@ -284,3 +313,24 @@ This file documents key architectural decisions for OverLex. Each ADR is numbere
 | 015 | Auto-generated context_prompt | Per-game lore/terminology prompts for AI engines |
 | 016 | JSON file API key storage | Plain JSON in %APPDATA%, atomic writes, corrupt recovery |
 | 017 | Decoupled freeze hide | User returns to game immediately after OCR, not after translation |
+| 018 | Hybrid console + terminal UI | Settings panel redesign with `[x] [ ]` checkboxes, `>` prompts, green terminal accents |
+| 019 | docs/changes/ folder for plans | Change plans live in `docs/changes/<change-name>/plan.md`, ADRs stay flat in `decisions.md` |
+
+---
+
+## ADR-019 — docs/changes/ folder for change plans
+
+- **Date**: 2026-06-10
+- **Status**: Accepted
+- **Context**: The project migrated from the legacy 7-phase SDD workflow (`openspec/changes/<name>/`) to SDD Lite in commit `8a384e6`. The legacy `openspec/` folder was deleted. In the first SDD Lite changes (`settings-bugs`, `game-profile-ui-on-restart`, `instant-flow`), plans lived at the repo root as `plan.md`. As more changes accumulate, root-level plans become disorganized — no clear ownership, no archive path, no version grouping.
+- **Decision**: Change plans live at `docs/changes/<change-name>/plan.md` (kebab-case change name, e.g. `ui-redesign`, `background-capture`). ADRs continue to live flat in `docs/decisions.md` (one file, append-only). The change folder is the change's workspace: it can be deleted after release if desired, or kept as historical record. Only the `plan.md` lives there for now — no other artifacts (no design.md, no tasks.md). This keeps SDD Lite's "caveman structure" — simple prompts, simple artifacts.
+- **Consequences**:
+  - Each change is self-contained: its plan, context, and decisions are in one folder.
+  - `docs/decisions.md` stays flat and append-only — easy to scan, no nested folders.
+  - Future changes follow the same pattern: `docs/changes/<name>/plan.md`.
+  - Change folders can be archived (zipped, git-archived) or deleted after release without affecting other documentation.
+  - Old root-level `plan.md` files (from v0.8.5, v0.8.6) remain in the repo as historical artifacts — they are not migrated retroactively.
+- **Alternatives considered**:
+  - A1: Keep `plan.md` at repo root (current pattern for v0.8.5/v0.8.6) — rejected because as changes accumulate, root becomes cluttered.
+  - A2: Per-change folders with multiple artifacts (`plan.md`, `design.md`, `tasks.md`, `notes.md`) — rejected as over-engineered for personal projects. SDD Lite is intentionally lean.
+  - A3: Folders named by type (`docs/changes/ui/`, `docs/changes/feature/`, `docs/changes/bugfix/`) — rejected because a single change can span multiple types. Change names are unambiguous.

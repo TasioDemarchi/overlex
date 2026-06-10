@@ -657,6 +657,7 @@ pub fn run() {
             commands::toggle_debug,
             commands::get_recent_logs,
             commands::log_from_frontend,
+            commands::clear_logs,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {

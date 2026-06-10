@@ -6,20 +6,36 @@
     <title>OverLex Settings</title>
     <style>
         :root {
+            /* Base palette (gray dark) */
             --bg-primary: #1a1a2e;
             --bg-secondary: #16213e;
             --bg-tertiary: #0f0f1a;
-            --text-primary: #eee;
-            --text-secondary: #aaa;
+            --text-primary: #e4e4e7;
+            --text-secondary: #9ca3af;
+            --text-muted: #6b7280;
+            --border: #2a2a3e;
+            --border-strong: #3a3a4e;
+
+            /* Accent: blue base + green terminal */
             --accent: #4e9af1;
             --accent-hover: #5fa8f9;
-            --border: #333;
+            --terminal: #51cf66;
+            --terminal-dim: #2d8a3d;
             --error: #ff6b6b;
-            --success: #51cf66;
+            --warning: #f59f00;
+            --success: var(--terminal);
+
+            /* Typography */
+            --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            --font-mono: 'Cascadia Code', 'Consolas', 'Monaco', 'Menlo', monospace;
+
+            /* Sizing */
+            --terminal-radius: 4px;
+            --panel-radius: 8px;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            font-family: var(--font-sans);
             background: var(--bg-primary);
             color: var(--text-primary);
             padding: 20px;
@@ -27,44 +43,55 @@
         }
         h1 {
             margin-bottom: 24px;
-            font-size: 1.5rem;
+            font-size: 1.75rem;
             font-weight: 600;
+            font-family: var(--font-sans);
         }
         h2 {
-            font-size: 1rem;
+            font-size: 0.9rem;
             font-weight: 600;
+            font-family: var(--font-sans);
             color: var(--accent);
-            margin: 20px 0 12px;
-            padding-bottom: 6px;
-            border-bottom: 1px solid var(--border);
+            margin: 24px 0 10px;
+            padding-left: 10px;
+            border-left: 3px solid var(--terminal-dim);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            border-bottom: none;
+            padding-bottom: 0;
         }
         h2:first-of-type { margin-top: 0; }
         .form-group { margin-bottom: 14px; }
         label {
             display: block;
             margin-bottom: 6px;
-            font-size: 0.85rem;
+            font-size: 0.8rem;
             color: var(--text-secondary);
+            font-family: var(--font-mono);
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
         }
         input[type="text"],
         input[type="password"],
         input[type="number"],
         select {
             width: 100%;
-            padding: 10px 12px;
+            padding: 8px 10px;
             background: var(--bg-tertiary);
-            border: 1px solid var(--border);
-            border-radius: 6px;
+            border: 1px solid var(--border-strong);
+            border-radius: var(--terminal-radius);
             color: var(--text-primary);
-            font-size: 0.9rem;
+            font-size: 0.85rem;
+            font-family: var(--font-mono);
             transition: border-color 0.2s;
         }
         input:focus, select:focus {
             outline: none;
             border-color: var(--accent);
+            box-shadow: 0 0 0 1px rgba(78, 154, 241, 0.2);
         }
         input.hotkey-input {
-            font-family: monospace;
+            font-family: var(--font-mono);
             text-transform: uppercase;
             cursor: pointer;
         }
@@ -72,71 +99,106 @@
             border-color: var(--accent);
             background: var(--bg-secondary);
         }
-        input[type="checkbox"] {
-            width: 18px;
-            height: 18px;
-            accent-color: var(--accent);
-        }
-        .checkbox-label {
+
+        /* Terminal checkboxes [x] [ ] */
+        .terminal-checkbox {
             display: flex;
             align-items: center;
             gap: 8px;
             cursor: pointer;
-            font-size: 0.9rem;
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            padding: 4px 0;
+            position: relative;
         }
-        button#save-btn {
-            width: 100%;
-            padding: 12px;
-            margin-top: 24px;
-            background: var(--accent);
-            border: none;
-            border-radius: 6px;
-            color: white;
-            font-size: 1rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: background 0.2s;
+        .terminal-checkbox input[type="checkbox"] {
+            position: absolute;
+            opacity: 0;
+            width: 0;
+            height: 0;
+            pointer-events: none;
         }
-        button#save-btn:hover {
-            background: var(--accent-hover);
+        .terminal-checkbox .cb-display {
+            color: var(--text-secondary);
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            user-select: none;
+            min-width: 2.2em;
+            flex-shrink: 0;
         }
-        #message {
-            margin-top: 16px;
-            padding: 12px;
-            border-radius: 6px;
-            font-size: 0.9rem;
-            display: none;
+        .terminal-checkbox input:checked + .cb-display {
+            color: var(--terminal);
         }
-        #message.success {
-            display: block;
-            background: rgba(81, 207, 102, 0.15);
-            color: var(--success);
-            border: 1px solid var(--success);
+        .terminal-checkbox .cb-label {
+            color: var(--text-primary);
         }
-        #message.error {
-            display: block;
-            background: rgba(255, 107, 107, 0.15);
-            color: var(--error);
-            border: 1px solid var(--error);
+        .terminal-checkbox:hover .cb-display {
+            color: var(--accent);
         }
-        .section {
-            background: var(--bg-secondary);
-            padding: 16px;
-            border-radius: 8px;
-            margin-bottom: 16px;
+        .terminal-checkbox input:checked:hover + .cb-display {
+            color: var(--terminal-dim);
         }
-        .small-btn {
-            padding: 6px 12px;
+        .terminal-checkbox input:focus-visible + .cb-display {
+            outline: 2px solid var(--accent);
+            outline-offset: 2px;
+            border-radius: 2px;
+        }
+
+        /* Terminal input with > prefix */
+        .terminal-input {
+            position: relative;
+        }
+        .terminal-input::before {
+            content: '>';
+            position: absolute;
+            left: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--terminal);
+            font-family: var(--font-mono);
+            font-weight: bold;
+            pointer-events: none;
+            z-index: 1;
+        }
+        .terminal-input input {
+            padding-left: 26px;
+        }
+        .terminal-input select {
+            padding-left: 26px;
+        }
+
+        /* Terminal buttons */
+        .terminal-btn {
+            font-family: var(--font-mono);
             background: var(--bg-tertiary);
-            border: 1px solid var(--border);
-            border-radius: 4px;
+            border: 1px solid var(--terminal);
+            color: var(--terminal);
+            padding: 8px 16px;
+            cursor: pointer;
+            border-radius: var(--terminal-radius);
+            font-size: 0.85rem;
+            transition: background 0.2s, border-color 0.2s;
+        }
+        .terminal-btn:hover {
+            background: rgba(81, 207, 102, 0.1);
+            border-color: var(--terminal);
+        }
+
+        /* Small buttons — terminal style */
+        .small-btn {
+            font-family: var(--font-mono);
+            padding: 4px 10px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-strong);
+            border-radius: var(--terminal-radius);
             color: var(--text-primary);
             font-size: 0.8rem;
             cursor: pointer;
-            transition: background 0.2s;
+            transition: background 0.2s, border-color 0.2s;
         }
         .small-btn:hover {
-            background: var(--border);
+            background: var(--bg-secondary);
+            border-color: var(--accent);
         }
         .small-btn.danger {
             color: var(--error);
@@ -145,48 +207,148 @@
         .small-btn.danger:hover {
             background: rgba(255, 107, 107, 0.15);
         }
-        .history-entry {
-            padding: 8px 10px;
-            border-bottom: 1px solid var(--border);
+
+        /* Save button */
+        button#save-btn {
+            font-family: var(--font-mono);
+            width: 100%;
+            padding: 12px;
+            margin-top: 24px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--terminal);
+            border-radius: var(--terminal-radius);
+            color: var(--terminal);
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: background 0.2s, border-color 0.2s;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        button#save-btn:hover {
+            background: rgba(81, 207, 102, 0.1);
+            border-color: var(--terminal);
+        }
+
+        #message {
+            margin-top: 16px;
+            padding: 12px;
+            border-radius: var(--terminal-radius);
             font-size: 0.85rem;
+            font-family: var(--font-mono);
+            display: none;
+        }
+        #message.success {
+            display: block;
+            background: rgba(81, 207, 102, 0.1);
+            color: var(--terminal);
+            border: 1px solid var(--terminal);
+        }
+        #message.error {
+            display: block;
+            background: rgba(255, 107, 107, 0.1);
+            color: var(--error);
+            border: 1px solid var(--error);
+        }
+
+        /* Section containers — open terminal feel */
+        .section {
+            background: var(--bg-secondary);
+            padding: 16px;
+            border-radius: var(--panel-radius);
+            margin-bottom: 16px;
+        }
+
+        /* Form row (two-column layout) */
+        .form-row {
+            display: flex;
+            gap: 12px;
+        }
+        .form-group.half {
+            flex: 1;
+        }
+
+        /* Engines consolidated list */
+        .engines-list {
+            margin-top: 8px;
+        }
+        .engine-block {
+            padding: 8px 0;
+            border-top: 1px solid var(--border);
+        }
+        .engine-block:first-child {
+            border-top: none;
+            padding-top: 0;
+        }
+        .engine-block .engine-key-row {
+            margin-top: 6px;
+            margin-bottom: 4px;
+            display: none;
+        }
+        .engine-block .engine-key-row.visible {
+            display: block;
+        }
+        .engine-status {
+            font-family: var(--font-mono);
+            font-size: 0.72rem;
+            margin-top: 2px;
+        }
+
+        /* Test status */
+        .test-status {
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            margin-top: 6px;
+        }
+
+        /* History entries — terminal style */
+        .history-entry {
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            padding: 4px 0;
+            border-bottom: 1px solid var(--border);
+            color: var(--text-secondary);
+            line-height: 1.5;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
         .history-entry:last-child {
             border-bottom: none;
         }
-        .history-entry .original {
-            color: var(--text-secondary);
-            margin-bottom: 4px;
-            word-break: break-word;
+        .history-entry .entry-prefix {
+            color: var(--terminal);
         }
-        .history-entry .translated {
+        .history-entry .entry-original {
+            color: var(--text-primary);
+        }
+        .history-entry .entry-arrow {
+            color: var(--terminal-dim);
+        }
+        .history-entry .entry-translated {
             color: var(--accent);
-            margin-bottom: 4px;
-            word-break: break-word;
         }
-        .history-entry .meta {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            font-size: 0.75rem;
-            color: var(--text-secondary);
+        .history-entry .entry-meta {
+            color: var(--text-muted);
         }
-        .history-entry .delete-btn {
+        .history-entry .delete-entry-btn {
+            color: var(--error);
             background: none;
             border: none;
-            color: var(--error);
             cursor: pointer;
+            font-family: var(--font-mono);
             font-size: 0.75rem;
-            padding: 2px 6px;
+            margin-left: 6px;
         }
-        .history-entry .delete-btn:hover {
+        .history-entry .delete-entry-btn:hover {
             text-decoration: underline;
         }
 
-        /* Profile cards */
+        /* Profile cards — terminal style */
         .profile-card {
+            font-family: var(--font-mono);
             background: var(--bg-tertiary);
             border: 1px solid var(--border);
-            border-radius: 6px;
+            border-radius: var(--terminal-radius);
             padding: 10px 12px;
             margin-bottom: 8px;
         }
@@ -198,7 +360,8 @@
             margin-bottom: 6px;
         }
         .profile-card-header strong {
-            font-size: 0.9rem;
+            font-size: 0.85rem;
+            font-family: var(--font-mono);
         }
         .profile-card-actions {
             display: flex;
@@ -213,37 +376,40 @@
             flex-wrap: wrap;
         }
         .process-tag {
+            font-family: var(--font-mono);
             background: var(--bg-secondary);
             padding: 2px 6px;
-            border-radius: 4px;
-            font-size: 0.8rem;
+            border-radius: var(--terminal-radius);
+            font-size: 0.78rem;
             color: var(--accent);
         }
         .badge {
+            font-family: var(--font-mono);
             padding: 2px 7px;
-            border-radius: 4px;
-            font-size: 0.72rem;
+            border-radius: var(--terminal-radius);
+            font-size: 0.7rem;
             font-weight: 500;
         }
-        .badge-lang { background: rgba(81,207,102,0.15); color: var(--success); }
+        .badge-lang { background: rgba(81,207,102,0.15); color: var(--terminal); }
         .badge-engine { background: rgba(78,154,241,0.15); color: var(--accent); }
         .badge-ocr { background: rgba(190,147,250,0.15); color: #be93fa; }
 
         /* Profile form */
         #profile-form h3 {
+            font-family: var(--font-mono);
             color: var(--text-primary);
-            font-size: 0.95rem;
+            font-size: 0.9rem;
             margin-bottom: 14px;
         }
         #profile-form .override-label {
+            font-family: var(--font-mono);
             display: block;
             margin: 14px 0 4px;
-            font-size: 0.8rem;
-            color: var(--text-secondary);
-            font-style: italic;
+            font-size: 0.78rem;
+            color: var(--terminal-dim);
         }
 
-        /* API Key Help Modal */
+        /* API Key Help Modal — green border, monospace */
         #api-key-modal {
             display: none;
             position: fixed;
@@ -258,8 +424,8 @@
         }
         #api-key-modal-content {
             background: var(--bg-secondary);
-            border: 1px solid var(--border);
-            border-radius: 8px;
+            border: 2px solid var(--terminal);
+            border-radius: var(--terminal-radius);
             padding: 20px;
             max-width: 480px;
             width: 90%;
@@ -268,19 +434,22 @@
             position: relative;
         }
         #api-key-modal h3 {
-            color: var(--accent);
+            font-family: var(--font-mono);
+            color: var(--terminal);
             margin-bottom: 12px;
-            font-size: 1.1rem;
+            font-size: 1rem;
         }
         #api-key-modal p {
+            font-family: var(--font-mono);
             color: var(--text-secondary);
-            font-size: 0.85rem;
+            font-size: 0.8rem;
             margin-bottom: 10px;
             line-height: 1.5;
         }
         #api-key-modal ol {
+            font-family: var(--font-mono);
             color: var(--text-secondary);
-            font-size: 0.85rem;
+            font-size: 0.8rem;
             margin: 10px 0 10px 20px;
             line-height: 1.6;
         }
@@ -296,33 +465,101 @@
         }
         #api-key-modal-close {
             position: absolute;
-            top: 12px;
-            right: 12px;
+            top: 10px;
+            right: 10px;
             background: none;
-            border: none;
-            color: var(--text-secondary);
-            font-size: 20px;
+            border: 1px solid var(--border-strong);
+            color: var(--terminal);
             cursor: pointer;
-            width: 28px;
-            height: 28px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            border-radius: 4px;
+            padding: 2px 8px;
+            font-family: var(--font-mono);
+            border-radius: var(--terminal-radius);
         }
         #api-key-modal-close:hover {
-            background: rgba(255,255,255,0.1);
-            color: #fff;
+            background: rgba(81, 207, 102, 0.1);
         }
         .api-key-note {
+            font-family: var(--font-mono);
             background: rgba(78, 154, 241, 0.1);
             border: 1px solid rgba(78, 154, 241, 0.3);
-            border-radius: 4px;
+            border-radius: var(--terminal-radius);
             padding: 8px 10px;
             margin-top: 12px;
-            font-size: 0.8rem;
+            font-size: 0.78rem;
             color: var(--text-secondary);
         }
+
+        /* Logs Modal — green border, terminal style */
+        #logs-modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 1001;
+            align-items: center;
+            justify-content: center;
+        }
+        #logs-modal.visible {
+            display: flex;
+        }
+        #logs-modal-content {
+            background: var(--bg-secondary);
+            border: 2px solid var(--terminal);
+            border-radius: var(--terminal-radius);
+            padding: 20px;
+            max-width: 640px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+            position: relative;
+        }
+        #logs-modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+        #logs-modal-header h3 {
+            font-family: var(--font-mono);
+            color: var(--terminal);
+            font-size: 1rem;
+            margin: 0;
+        }
+        #logs-modal-body {
+            font-family: var(--font-mono);
+            font-size: 0.78rem;
+            line-height: 1.6;
+            max-height: 55vh;
+            overflow-y: auto;
+            margin-bottom: 12px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: var(--terminal-radius);
+            padding: 10px;
+        }
+        .log-line {
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        .log-line.error {
+            color: var(--error);
+        }
+        .log-line.warn {
+            color: var(--warning);
+        }
+        .log-line.ok {
+            color: var(--terminal);
+        }
+        .log-line.default {
+            color: var(--text-secondary);
+        }
+        #logs-modal-actions {
+            display: flex;
+            gap: 8px;
+            justify-content: flex-end;
+        }
+
+        /* App version footer — unchanged */
         #app-version {
             position: fixed;
             bottom: 8px;
@@ -356,103 +593,77 @@
     <div class="section">
         <div class="form-group">
             <label for="ocr-hotkey">OCR Capture Hotkey</label>
-            <input type="text" id="ocr-hotkey" class="hotkey-input" readonly placeholder="Click to set hotkey" />
+            <div class="terminal-input">
+                <input type="text" id="ocr-hotkey" class="hotkey-input" readonly placeholder="Click to set hotkey" />
+            </div>
         </div>
 
         <div class="form-group">
             <label for="write-hotkey">Write Mode Hotkey</label>
-            <input type="text" id="write-hotkey" class="hotkey-input" readonly placeholder="Click to set hotkey" />
+            <div class="terminal-input">
+                <input type="text" id="write-hotkey" class="hotkey-input" readonly placeholder="Click to set hotkey" />
+            </div>
         </div>
     </div>
 
-    <!-- Translation Section -->
-    <h2>Translation</h2>
+    <!-- Translation Engines Section -->
+    <h2>Translation Engines</h2>
     <div class="section">
-        <div class="form-group">
-            <label for="source-lang">Source Language</label>
-            <select id="source-lang">
-                <option value="auto">Auto-detect</option>
-                <option value="en">English</option>
-                <option value="es">Spanish</option>
-                <option value="fr">French</option>
-                <option value="de">German</option>
-                <option value="pt">Portuguese</option>
-                <option value="it">Italian</option>
-                <option value="ja">Japanese</option>
-                <option value="ko">Korean</option>
-                <option value="zh">Chinese</option>
-                <option value="ru">Russian</option>
-            </select>
-        </div>
-
-        <div class="form-group">
-            <label for="target-lang">Target Language</label>
-            <select id="target-lang">
-                <option value="es">Spanish</option>
-                <option value="en">English</option>
-                <option value="fr">French</option>
-                <option value="de">German</option>
-                <option value="pt">Portuguese</option>
-                <option value="it">Italian</option>
-                <option value="ja">Japanese</option>
-                <option value="ko">Korean</option>
-                <option value="zh">Chinese</option>
-                <option value="ru">Russian</option>
-            </select>
-        </div>
-
-        <div class="form-group">
-            <label>Translation Engines</label>
-            <div id="engine-checkboxes" style="margin-bottom: 10px;">
-                <!-- Paid engines rendered by JS -->
+        <!-- Languages row -->
+        <div class="form-row">
+            <div class="form-group half">
+                <label for="source-lang">Source Lang</label>
+                <select id="source-lang">
+                    <option value="auto">Auto-detect</option>
+                    <option value="en">English</option>
+                    <option value="es">Spanish</option>
+                    <option value="fr">French</option>
+                    <option value="de">German</option>
+                    <option value="pt">Portuguese</option>
+                    <option value="it">Italian</option>
+                    <option value="ja">Japanese</option>
+                    <option value="ko">Korean</option>
+                    <option value="zh">Chinese</option>
+                    <option value="ru">Russian</option>
+                </select>
             </div>
-            <small style="color: var(--text-secondary); display: block; margin-bottom: 8px;">
-                Free engines (Google Translate, MyMemory) are always enabled.
-            </small>
+            <div class="form-group half">
+                <label for="target-lang">Target Lang</label>
+                <select id="target-lang">
+                    <option value="es">Spanish</option>
+                    <option value="en">English</option>
+                    <option value="fr">French</option>
+                    <option value="de">German</option>
+                    <option value="pt">Portuguese</option>
+                    <option value="it">Italian</option>
+                    <option value="ja">Japanese</option>
+                    <option value="ko">Korean</option>
+                    <option value="zh">Chinese</option>
+                    <option value="ru">Russian</option>
+                </select>
+            </div>
         </div>
 
+        <!-- Primary engine -->
         <div class="form-group">
             <label for="primary-engine">Primary Engine</label>
             <div style="display: flex; gap: 8px; align-items: center;">
                 <select id="primary-engine" style="flex: 1;">
                     <!-- Populated dynamically by JS -->
                 </select>
-                <button id="engine-help-btn" type="button" title="How to get API key" style="background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 4px; color: var(--text-secondary); cursor: pointer; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0;">?</button>
+                <button id="engine-help-btn" type="button" title="How to get API key" class="small-btn" style="flex-shrink: 0;">?</button>
             </div>
         </div>
 
-        <!-- Per-engine API key sections (hidden by default, shown when checkbox toggled) -->
-        <div class="engine-api-key" data-engine="gemini" style="display:none;">
-            <div class="form-group">
-                <label for="api-key-gemini">Gemini API Key</label>
-                <div class="api-key-input-row" style="display: flex; gap: 8px; align-items: center;">
-                    <input type="password" id="api-key-gemini" placeholder="Enter Gemini API key" style="flex: 1;" />
-                    <button class="test-key-btn small-btn" data-engine="gemini" style="white-space: nowrap; flex-shrink: 0;">Test Key</button>
-                </div>
-                <small id="api-key-status-gemini" style="margin-top: 4px; display: block; font-size: 11px;"></small>
-            </div>
+        <!-- Engines + API keys consolidated (rendered by JS) -->
+        <div id="engines-list" class="engines-list">
+            <!-- JS renders engine blocks here -->
         </div>
 
-        <div class="engine-api-key" data-engine="deepl" style="display:none;">
-            <div class="form-group">
-                <label for="api-key-deepl">DeepL API Key</label>
-                <div class="api-key-input-row" style="display: flex; gap: 8px; align-items: center;">
-                    <input type="password" id="api-key-deepl" placeholder="Enter DeepL API key" style="flex: 1;" />
-                    <button class="test-key-btn small-btn" data-engine="deepl" style="white-space: nowrap; flex-shrink: 0;">Test Key</button>
-                </div>
-                <small id="api-key-status-deepl" style="margin-top: 4px; display: block; font-size: 11px;"></small>
-            </div>
-        </div>
-
-        <div class="engine-api-key" data-engine="deepseek" style="display:none;">
-            <div class="form-group">
-                <label for="api-key-deepseek">DeepSeek API Key</label>
-                <div class="api-key-input-row" style="display: flex; gap: 8px; align-items: center;">
-                    <input type="password" id="api-key-deepseek" placeholder="Enter DeepSeek API key" style="flex: 1;" />
-                    <button class="test-key-btn small-btn" data-engine="deepseek" style="white-space: nowrap; flex-shrink: 0;">Test Key</button>
-                </div>
-                <small id="api-key-status-deepseek" style="margin-top: 4px; display: block; font-size: 11px;"></small>
-            </div>
+        <!-- Single Test All Keys button -->
+        <div class="form-group">
+            <button id="test-all-keys-btn" class="terminal-btn">[ TEST ALL KEYS ]</button>
+            <div id="test-all-status" class="test-status"></div>
         </div>
     </div>
 
@@ -471,9 +682,10 @@
         </div>
 
         <div class="form-group">
-            <label class="checkbox-label">
+            <label class="terminal-checkbox">
                 <input type="checkbox" id="auto-dismiss-enabled" />
-                Auto-dismiss overlay
+                <span class="cb-display">[ ]</span>
+                <span class="cb-label">Auto-dismiss overlay</span>
             </label>
         </div>
         <div class="form-group" id="timeout-group" style="display:none;">
@@ -486,18 +698,20 @@
     <h2>OCR Pre-processing</h2>
     <div class="section">
         <div class="form-group">
-            <label class="checkbox-label">
+            <label class="terminal-checkbox">
                 <input type="checkbox" id="ocr-preprocessing-enabled" />
-                Enable image pre-processing
+                <span class="cb-display">[ ]</span>
+                <span class="cb-label">Enable image pre-processing</span>
             </label>
             <small style="color: var(--text-secondary); display: block; margin-top: 4px;">
                 Improves OCR accuracy on low-contrast text (grayscale, contrast stretch)
             </small>
         </div>
         <div class="form-group">
-            <label class="checkbox-label">
+            <label class="terminal-checkbox">
                 <input type="checkbox" id="ocr-binarize-enabled" />
-                Enable binarization (Otsu threshold)
+                <span class="cb-display">[ ]</span>
+                <span class="cb-label">Enable binarization (Otsu threshold)</span>
             </label>
             <small style="color: var(--text-secondary); display: block; margin-top: 4px;">
                 Converts to black & white. Best for very dark/light backgrounds
@@ -509,15 +723,16 @@
     <h2>Game Profiles</h2>
     <div class="section">
         <div class="form-group">
-            <label class="checkbox-label">
+            <label class="terminal-checkbox">
                 <input type="checkbox" id="show-debug" />
-                Show debug info on overlays
+                <span class="cb-display">[ ]</span>
+                <span class="cb-label">Show debug info on overlays</span>
             </label>
         </div>
         <div id="profile-list">
             <!-- Profile cards rendered here -->
         </div>
-        <button id="add-profile-btn" class="small-btn" style="margin-top: 8px;">+ Add Profile</button>
+        <button id="add-profile-btn" class="small-btn" style="margin-top: 8px;">[ + ADD PROFILE ]</button>
 
         <!-- Profile form (hidden by default, replaces list when editing) -->
         <div id="profile-form" style="display:none;">
@@ -533,7 +748,7 @@
                     To find the process name: open Task Manager (Ctrl+Shift+Esc) → Details tab → look for the game's .exe (e.g. PathOfExileSteam.exe)
                 </small>
             </div>
-            <span class="override-label">Optional Overrides — Leave empty to use defaults</span>
+            <span class="override-label">> OPTIONAL OVERRIDES — Leave empty to use defaults</span>
             <div class="form-group">
                 <label for="profile-source-lang">Source Language</label>
                 <select id="profile-source-lang">
@@ -579,20 +794,22 @@
                 </select>
             </div>
             <div class="form-group">
-                <label class="checkbox-label">
+                <label class="terminal-checkbox">
                     <input type="checkbox" id="profile-ocr-preprocessing" />
-                    Enable image pre-processing
+                    <span class="cb-display">[ ]</span>
+                    <span class="cb-label">Enable image pre-processing</span>
                 </label>
             </div>
             <div class="form-group">
-                <label class="checkbox-label">
+                <label class="terminal-checkbox">
                     <input type="checkbox" id="profile-ocr-binarize" />
-                    Enable binarization (Otsu threshold)
+                    <span class="cb-display">[ ]</span>
+                    <span class="cb-label">Enable binarization (Otsu threshold)</span>
                 </label>
             </div>
             <div style="display: flex; gap: 8px; margin-top: 16px;">
-                <button id="profile-save-btn" class="small-btn" style="background: var(--accent); border-color: var(--accent);">Save</button>
-                <button id="profile-cancel-btn" class="small-btn">Cancel</button>
+                <button id="profile-save-btn" class="small-btn">[ SAVE ]</button>
+                <button id="profile-cancel-btn" class="small-btn">[ CANCEL ]</button>
             </div>
         </div>
     </div>
@@ -601,23 +818,26 @@
     <h2>Translation History</h2>
     <div class="section">
         <div class="form-group">
-            <label class="checkbox-label">
+            <label class="terminal-checkbox">
                 <input type="checkbox" id="history-enabled" />
-                Enable translation history
+                <span class="cb-display">[ ]</span>
+                <span class="cb-label">Enable translation history</span>
             </label>
         </div>
         <div id="history-panel" style="margin-top: 12px;">
             <div class="form-group">
-                <input type="text" id="history-search" placeholder="Search history..." style="margin-bottom: 8px;" />
+                <div class="terminal-input">
+                    <input type="text" id="history-search" placeholder="Search history..." />
+                </div>
             </div>
             <div id="history-list" style="max-height: 200px; overflow-y: auto; margin-bottom: 8px;">
                 <!-- History entries will be populated here -->
             </div>
             <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-                <button id="history-load-more" class="small-btn">Load More</button>
-                <button id="history-export-json" class="small-btn">Export JSON</button>
-                <button id="history-export-csv" class="small-btn">Export CSV</button>
-                <button id="history-clear" class="small-btn danger">Clear All</button>
+                <button id="history-load-more" class="small-btn">[ LOAD MORE ]</button>
+                <button id="history-export-json" class="small-btn">[ EXPORT JSON ]</button>
+                <button id="history-export-csv" class="small-btn">[ EXPORT CSV ]</button>
+                <button id="history-clear" class="small-btn danger">[ CLEAR ALL ]</button>
             </div>
         </div>
     </div>
@@ -626,37 +846,47 @@
     <h2>System</h2>
     <div class="section">
         <div class="form-group">
-            <label class="checkbox-label">
+            <label class="terminal-checkbox">
                 <input type="checkbox" id="start-with-windows" />
-                Start with Windows
+                <span class="cb-display">[ ]</span>
+                <span class="cb-label">Start with Windows</span>
             </label>
         </div>
         <div class="form-group">
-            <button id="view-logs-btn" class="small-btn">View Logs</button>
-        </div>
-        <div id="log-panel" style="display: none; margin-top: 12px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                <strong style="font-size: 0.85rem; color: var(--text-secondary);">Recent Logs</strong>
-                <button id="clear-logs-btn" class="small-btn" style="padding: 2px 8px; font-size: 11px;">Clear</button>
-            </div>
-            <div id="log-content" style="background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 4px; padding: 8px; max-height: 300px; overflow-y: auto; font-family: 'Consolas', monospace; font-size: 11px; white-space: pre-wrap; color: var(--text-secondary);"></div>
+            <button id="view-logs-btn" class="small-btn">[ VIEW LOGS ]</button>
         </div>
     </div>
 
-    <button id="save-btn">Save Settings</button>
+    <button id="save-btn">[ SAVE SETTINGS ]</button>
 
     <div id="message"></div>
 
     <!-- API Key Help Modal -->
     <div id="api-key-modal">
         <div id="api-key-modal-content">
-            <button id="api-key-modal-close">&times;</button>
+            <button id="api-key-modal-close">[ X ]</button>
             <h3 id="api-key-modal-title">How to get your API Key</h3>
             <div id="api-key-modal-body"></div>
         </div>
     </div>
 
+    <!-- Logs Modal -->
+    <div id="logs-modal">
+        <div id="logs-modal-content">
+            <div id="logs-modal-header">
+                <h3>&gt; SYSTEM LOGS</h3>
+                <button id="logs-modal-close" class="small-btn">[ CLOSE ]</button>
+            </div>
+            <div id="logs-modal-body">
+                <!-- Populated by JS -->
+            </div>
+            <div id="logs-modal-actions">
+                <button id="logs-modal-clear" class="small-btn danger">[ CLEAR ]</button>
+            </div>
+        </div>
+    </div>
+
     <script src="settings.js"></script>
-    <footer id="app-version">OverLex v0.8.6</footer>
+    <footer id="app-version">OverLex v0.9.0</footer>
 </body>
 </html>

@@ -130,25 +130,48 @@ function setupHotkeyCapture(inputElement) {
     });
 }
 
-// Render a single history entry
+// Render a single history entry (terminal style)
 function renderHistoryEntry(entry) {
     const div = document.createElement('div');
     div.className = 'history-entry';
     div.dataset.id = entry.id;
 
-    const createdAt = entry.created_at ? new Date(entry.created_at).toLocaleString() : '';
+    const engineLabel = ENGINE_LABELS[entry.engine] || entry.engine || 'unknown';
 
-    div.innerHTML = `
-        <div class="original">${escapeHtml(entry.original_text)}</div>
-        <div class="translated">${escapeHtml(entry.translated_text)}</div>
-        <div class="meta">
-            <span>${entry.source_lang} → ${entry.target_lang} • ${createdAt}</span>
-            <button class="delete-btn" data-id="${entry.id}">Delete</button>
-        </div>
-    `;
+    const prefixSpan = document.createElement('span');
+    prefixSpan.className = 'entry-prefix';
+    prefixSpan.textContent = '> ';
+
+    const originalSpan = document.createElement('span');
+    originalSpan.className = 'entry-original';
+    originalSpan.textContent = '"' + entry.original_text + '"';
+
+    const arrowSpan = document.createElement('span');
+    arrowSpan.className = 'entry-arrow';
+    arrowSpan.textContent = ' → ';
+
+    const translatedSpan = document.createElement('span');
+    translatedSpan.className = 'entry-translated';
+    translatedSpan.textContent = '"' + entry.translated_text + '"';
+
+    const metaSpan = document.createElement('span');
+    metaSpan.className = 'entry-meta';
+    metaSpan.textContent = ' [' + engineLabel + '] ';
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'delete-entry-btn';
+    deleteBtn.dataset.id = entry.id;
+    deleteBtn.textContent = '[delete]';
+
+    div.appendChild(prefixSpan);
+    div.appendChild(originalSpan);
+    div.appendChild(arrowSpan);
+    div.appendChild(translatedSpan);
+    div.appendChild(metaSpan);
+    div.appendChild(deleteBtn);
 
     // Delete button handler
-    div.querySelector('.delete-btn').addEventListener('click', async (e) => {
+    deleteBtn.addEventListener('click', async (e) => {
         e.stopPropagation();
         const id = parseInt(e.target.dataset.id);
         if (confirm('Delete this history entry?')) {
@@ -313,8 +336,8 @@ function renderProfiles() {
             <div class="profile-card-header">
                 <strong>${escapeHtml(profile.display_name)}</strong>
                 <div class="profile-card-actions">
-                    <button class="small-btn edit-profile-btn">Edit</button>
-                    <button class="small-btn danger delete-profile-btn">Delete</button>
+                    <button class="small-btn edit-profile-btn">[ EDIT ]</button>
+                    <button class="small-btn danger delete-profile-btn">[ DELETE ]</button>
                 </div>
             </div>
             <div class="profile-card-processes">${processTags}</div>
@@ -541,7 +564,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Render engine UI with new multi-engine design
         const enabledEngines = settings.enabled_engines || ['google_gtx', 'mymemory'];
         const primaryEngine = settings.primary_engine || 'google_gtx';
-        renderEngineUI(enabledEngines, primaryEngine);
+        renderEnginesWithKeys(enabledEngines, primaryEngine);
 
         overlayPositionSelect.value = settings.overlay_position || 'near-selection';
 
@@ -579,7 +602,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         writeHotkeyInput.value = 'CTRL+SHIFT+W';
         sourceLangSelect.value = 'auto';
         targetLangSelect.value = 'es';
-        renderEngineUI(['google_gtx', 'mymemory'], 'google_gtx');
+        renderEnginesWithKeys(['google_gtx', 'mymemory'], 'google_gtx');
         overlayPositionSelect.value = 'near-selection';
         autoDismissEnabledCheckbox.checked = true;
         timeoutGroup.style.display = 'block';
@@ -766,7 +789,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (s.primary_engine || s.enabled_engines) {
                 const enabledEngines = s.enabled_engines || __currentEnabledEngines;
                 const primaryEngine = s.primary_engine || __currentPrimaryEngine;
-                renderEngineUI(enabledEngines, primaryEngine);
+                renderEnginesWithKeys(enabledEngines, primaryEngine);
             }
         }).catch(e => console.error('Failed to listen settings-changed:', e));
 
@@ -805,16 +828,21 @@ function getCheckedPaidEngines() {
     return checked;
 }
 
-function renderEngineUI(enabledEngines, primaryEngine) {
+function renderEnginesWithKeys(enabledEngines, primaryEngine) {
     __currentEnabledEngines = enabledEngines;
     __currentPrimaryEngine = primaryEngine;
 
-    // Render paid engine checkboxes
-    engineCheckboxesDiv.innerHTML = '';
+    const enginesList = document.getElementById('engines-list');
+    if (!enginesList) return;
+    enginesList.innerHTML = '';
+
     PAID_ENGINES.forEach(engine => {
-        const label = document.createElement('label');
-        label.className = 'checkbox-label';
-        label.style.marginBottom = '4px';
+        const block = document.createElement('div');
+        block.className = 'engine-block';
+
+        // Checkbox row
+        const cbLabel = document.createElement('label');
+        cbLabel.className = 'terminal-checkbox';
 
         const cb = document.createElement('input');
         cb.type = 'checkbox';
@@ -822,31 +850,59 @@ function renderEngineUI(enabledEngines, primaryEngine) {
         cb.value = engine;
         cb.checked = enabledEngines.includes(engine);
 
+        const cbDisplay = document.createElement('span');
+        cbDisplay.className = 'cb-display';
+        cbDisplay.textContent = '[ ]';
+
+        const cbLabelText = document.createElement('span');
+        cbLabelText.className = 'cb-label';
+        cbLabelText.textContent = ` Enable ${ENGINE_LABELS[engine]}`;
+
+        cbLabel.appendChild(cb);
+        cbLabel.appendChild(cbDisplay);
+        cbLabel.appendChild(cbLabelText);
+        block.appendChild(cbLabel);
+
+        // API key row (hidden if unchecked)
+        const keyRow = document.createElement('div');
+        keyRow.className = 'engine-key-row';
+        if (enabledEngines.includes(engine)) {
+            keyRow.classList.add('visible');
+        }
+
+        const keyInputWrapper = document.createElement('div');
+        keyInputWrapper.className = 'terminal-input';
+
+        const keyInput = document.createElement('input');
+        keyInput.type = 'password';
+        keyInput.id = `api-key-${engine}`;
+        keyInput.placeholder = `Enter ${ENGINE_LABELS[engine]} API key`;
+
+        keyInputWrapper.appendChild(keyInput);
+        keyRow.appendChild(keyInputWrapper);
+        block.appendChild(keyRow);
+
+        // Status element
+        const statusEl = document.createElement('small');
+        statusEl.id = `api-key-status-${engine}`;
+        statusEl.className = 'engine-status';
+        block.appendChild(statusEl);
+
+        // Toggle key row on checkbox change
         cb.addEventListener('change', () => {
-            // Toggle API key section visibility
-            const keySection = document.querySelector(`.engine-api-key[data-engine="${engine}"]`);
-            if (keySection) {
-                keySection.style.display = cb.checked ? 'block' : 'none';
+            if (cb.checked) {
+                keyRow.classList.add('visible');
+            } else {
+                keyRow.classList.remove('visible');
             }
-            // Re-render primary dropdown based on current state
             renderPrimaryDropdown(primaryEngineSelect.value);
         });
 
-        label.appendChild(cb);
-        label.appendChild(document.createTextNode(` Enable ${ENGINE_LABELS[engine]}`));
-        engineCheckboxesDiv.appendChild(label);
+        enginesList.appendChild(block);
     });
 
     // Render primary engine dropdown
     renderPrimaryDropdown(primaryEngine);
-
-    // Show/hide API key sections for checked paid engines
-    PAID_ENGINES.forEach(engine => {
-        const keySection = document.querySelector(`.engine-api-key[data-engine="${engine}"]`);
-        if (keySection) {
-            keySection.style.display = enabledEngines.includes(engine) ? 'block' : 'none';
-        }
-    });
 
     // Check stored keys for paid engines
     PAID_ENGINES.forEach(engine => {
@@ -911,58 +967,110 @@ async function checkEngineKeyStatus(engine) {
     }
 }
 
-// Per-engine Test Key buttons
-document.addEventListener('click', async (e) => {
-    const btn = e.target.closest('.test-key-btn');
-    if (!btn) return;
+// Test All Keys button
+document.addEventListener('DOMContentLoaded', () => {
+    const testAllBtn = document.getElementById('test-all-keys-btn');
+    if (testAllBtn) {
+        testAllBtn.addEventListener('click', testAllEnabledKeys);
+    }
+});
 
-    const engine = btn.dataset.engine;
-    const inputEl = document.getElementById(`api-key-${engine}`);
-    const statusEl = document.getElementById(`api-key-status-${engine}`);
-    const key = inputEl ? inputEl.value.trim() : '';
+async function testAllEnabledKeys() {
+    const testAllBtn = document.getElementById('test-all-keys-btn');
+    const statusEl = document.getElementById('test-all-status');
+    const checkedPaid = getCheckedPaidEngines();
 
-    if (!key) {
+    if (checkedPaid.length === 0) {
         if (statusEl) {
-            statusEl.textContent = '✗ Enter an API key first';
-            statusEl.style.color = 'var(--error, #ff6b6b)';
+            statusEl.textContent = 'No paid engines enabled.';
+            statusEl.className = 'test-status';
+            statusEl.style.color = 'var(--text-secondary)';
         }
         return;
     }
 
     // Disable button during test
-    btn.disabled = true;
-    btn.textContent = 'Testing...';
+    if (testAllBtn) {
+        testAllBtn.disabled = true;
+        testAllBtn.textContent = '[ TESTING... ]';
+    }
     if (statusEl) {
-        statusEl.textContent = 'Testing API key...';
+        statusEl.textContent = 'Testing...';
+        statusEl.className = 'test-status';
         statusEl.style.color = 'var(--text-secondary)';
     }
 
-    try {
-        const result = await invoke('test_api_key', { engine, key });
+    const valid = [];
+    const failed = [];
+    const empty = [];
 
-        if (result.success) {
-            // Save the key on success
-            await invoke('set_api_key', { engine, key });
-            if (statusEl) {
-                statusEl.textContent = `✓ ${result.message}`;
-                statusEl.style.color = 'var(--success, #51cf66)';
+    for (const engine of checkedPaid) {
+        const inputEl = document.getElementById(`api-key-${engine}`);
+        const key = inputEl ? inputEl.value.trim() : '';
+
+        if (!key) {
+            empty.push(engine);
+            continue;
+        }
+
+        try {
+            const result = await invoke('test_api_key', { engine, key });
+            if (result.success) {
+                // Auto-save on success
+                await invoke('set_api_key', { engine, key });
+                valid.push(engine);
+                // Update per-engine status
+                const engStatus = document.getElementById(`api-key-status-${engine}`);
+                if (engStatus) {
+                    engStatus.textContent = `✓ ${result.message}`;
+                    engStatus.style.color = 'var(--terminal)';
+                }
+            } else {
+                failed.push(engine);
+                const engStatus = document.getElementById(`api-key-status-${engine}`);
+                if (engStatus) {
+                    engStatus.textContent = `✗ ${result.message}`;
+                    engStatus.style.color = 'var(--error)';
+                }
             }
-        } else {
-            if (statusEl) {
-                statusEl.textContent = `✗ ${result.message}`;
-                statusEl.style.color = 'var(--error, #ff6b6b)';
+        } catch (e) {
+            failed.push(engine);
+            const engStatus = document.getElementById(`api-key-status-${engine}`);
+            if (engStatus) {
+                engStatus.textContent = `✗ Test failed: ${e}`;
+                engStatus.style.color = 'var(--error)';
             }
         }
-    } catch (e) {
-        if (statusEl) {
-            statusEl.textContent = `✗ Test failed: ${e}`;
-            statusEl.style.color = 'var(--error, #ff6b6b)';
-        }
-    } finally {
-        btn.disabled = false;
-        btn.textContent = 'Test Key';
     }
-});
+
+    // Build status message
+    let msg = '';
+    if (empty.length === checkedPaid.length) {
+        msg = 'All enabled engines have empty API keys.';
+    } else if (failed.length === 0 && empty.length === 0) {
+        msg = '✓ All keys valid and saved';
+    } else if (valid.length === 0 && empty.length === 0) {
+        msg = `✗ All failed: ${failed.map(e => ENGINE_LABELS[e] || e).join(', ')}`;
+    } else {
+        const parts = [];
+        if (valid.length > 0) parts.push(`✓ ${valid.length} valid`);
+        if (failed.length > 0) parts.push(`✗ ${failed.length} failed`);
+        if (empty.length > 0) parts.push(`${empty.length} empty`);
+        msg = parts.join(', ');
+    }
+
+    if (statusEl) {
+        statusEl.textContent = msg;
+        statusEl.className = 'test-status';
+        statusEl.style.color = failed.length > 0 ? 'var(--error)' : (valid.length > 0 ? 'var(--terminal)' : 'var(--text-secondary)');
+    }
+
+    // Re-enable button
+    if (testAllBtn) {
+        testAllBtn.disabled = false;
+        testAllBtn.textContent = '[ TEST ALL KEYS ]';
+    }
+}
 
 // ============================================================
 // API Key Help Modal
@@ -1074,55 +1182,123 @@ document.addEventListener('keydown', (e) => {
 });
 
 // ============================================================
-// Log Viewer
+// Logs Modal
 // ============================================================
 
 const viewLogsBtn = document.getElementById('view-logs-btn');
-const logPanel = document.getElementById('log-panel');
-const logContent = document.getElementById('log-content');
-const clearLogsBtn = document.getElementById('clear-logs-btn');
 
-let logPanelVisible = false;
+function formatLogLine(text) {
+    const safe = escapeHtml(text);
+    const upper = text.toUpperCase();
+    let cssClass = 'log-line default';
+    if (upper.includes('ERROR') || upper.includes('PANIC')) {
+        cssClass = 'log-line error';
+    } else if (upper.includes('WARN') || upper.includes('FAILED')) {
+        cssClass = 'log-line warn';
+    } else if (upper.includes('[OK]') || upper.includes('SUCCESS')) {
+        cssClass = 'log-line ok';
+    }
+    return `<div class="${cssClass}">&gt; ${safe}</div>`;
+}
 
-async function loadLogs() {
+async function openLogsModal() {
+    const body = document.getElementById('logs-modal-body');
+    const modal = document.getElementById('logs-modal');
+    if (!modal || !body) return;
+
     try {
         const logs = await invoke('get_recent_logs');
-        if (logs.length === 0) {
-            logContent.textContent = 'No logs yet';
-            return;
+        if (!logs || logs.length === 0) {
+            body.innerHTML = '<div class="log-line default">&gt; No logs yet</div>';
+        } else {
+            body.innerHTML = logs.map(entry => {
+                const level = entry.level || 'INFO';
+                const timestamp = entry.timestamp || '';
+                const message = entry.message || '';
+                const text = `[${timestamp}] [${level}] ${message}`;
+                return formatLogLine(text);
+            }).join('');
         }
-        // Format logs with color coding
-        logContent.innerHTML = logs.map(entry => {
-            let color = 'var(--text-secondary)';
-            if (entry.level === 'ERROR') color = 'var(--error, #ff6b6b)';
-            else if (entry.level === 'WARN') color = '#f59f00';
-            else if (entry.level === 'INFO') color = 'var(--accent, #4e9af1)';
-            return `<span style="color: #555;">[${entry.timestamp}]</span> <span style="color: ${color};">[${entry.level}]</span> ${entry.message}`;
-        }).join('\n');
-        // Scroll to bottom
-        logContent.scrollTop = logContent.scrollHeight;
+        body.scrollTop = body.scrollHeight;
     } catch (e) {
-        logContent.textContent = `Error loading logs: ${e}`;
+        body.innerHTML = `<div class="log-line error">&gt; Error loading logs: ${escapeHtml(String(e))}</div>`;
+    }
+
+    modal.classList.add('visible');
+}
+
+function closeLogsModal() {
+    const modal = document.getElementById('logs-modal');
+    if (modal) {
+        modal.classList.remove('visible');
     }
 }
 
-viewLogsBtn.addEventListener('click', async () => {
-    logPanelVisible = !logPanelVisible;
-    if (logPanelVisible) {
-        logPanel.style.display = 'block';
-        await loadLogs();
-    } else {
-        logPanel.style.display = 'none';
+viewLogsBtn.addEventListener('click', () => {
+    openLogsModal();
+});
+
+// Logs modal close and clear buttons
+document.addEventListener('DOMContentLoaded', () => {
+    const closeBtn = document.getElementById('logs-modal-close');
+    if (closeBtn) {
+        closeBtn.addEventListener('click', closeLogsModal);
+    }
+
+    const clearBtn = document.getElementById('logs-modal-clear');
+    if (clearBtn) {
+        clearBtn.addEventListener('click', async () => {
+            const body = document.getElementById('logs-modal-body');
+            try {
+                await invoke('clear_logs');
+                if (body) body.innerHTML = '<div class="log-line default">&gt; Logs cleared</div>';
+            } catch (e) {
+                if (body) body.innerHTML = `<div class="log-line error">&gt; Error clearing logs: ${escapeHtml(String(e))}</div>`;
+            }
+        });
+    }
+
+    // Close logs modal when clicking outside
+    const logsModal = document.getElementById('logs-modal');
+    if (logsModal) {
+        logsModal.addEventListener('click', (e) => {
+            if (e.target === logsModal) {
+                closeLogsModal();
+            }
+        });
     }
 });
 
-clearLogsBtn.addEventListener('click', () => {
-    logContent.textContent = 'Logs cleared';
+// Close logs modal on Escape
+document.addEventListener('keydown', (e) => {
+    const logsModal = document.getElementById('logs-modal');
+    if (e.key === 'Escape' && logsModal && logsModal.classList.contains('visible')) {
+        closeLogsModal();
+    }
 });
 
-// Auto-refresh logs every 3 seconds when panel is visible
+// Auto-refresh logs every 3 seconds when modal is visible
 setInterval(() => {
-    if (logPanelVisible) {
-        loadLogs();
+    const modal = document.getElementById('logs-modal');
+    if (modal && modal.classList.contains('visible')) {
+        const body = document.getElementById('logs-modal-body');
+        if (body) {
+            invoke('get_recent_logs').then(logs => {
+                if (logs && logs.length > 0) {
+                    body.innerHTML = logs.map(entry => {
+                        const level = entry.level || 'INFO';
+                        const timestamp = entry.timestamp || '';
+                        const message = entry.message || '';
+                        const text = `[${timestamp}] [${level}] ${message}`;
+                        return formatLogLine(text);
+                    }).join('');
+                    // Keep scroll at bottom if user hasn't scrolled up
+                    const atBottom = body.scrollHeight - body.scrollTop - body.clientHeight < 40;
+                    if (atBottom) {
+                        body.scrollTop = body.scrollHeight;
+                    }
+                }
+            }).catch(() => {});
+        }
     }
 }, 3000);

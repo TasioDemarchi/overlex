@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.9.0] - 2026-06-10
+
+### Changed
+- **Full Settings panel visual redesign**: hybrid aesthetic combining console-app feel (gray dark theme, blue accents) with terminal aesthetic (monospace body text, green accents for terminal cues, custom `[x] [ ]` checkboxes, `>` prompt prefix on user-input fields).
+- **Engines + API Keys consolidated** into a single section. Each engine's checkbox and API key input are stacked. A single `[ TEST ALL KEYS ]` button at the bottom tests all enabled engines' keys at once and automatically saves successful ones.
+- **Logs panel** converted from an inline expandable panel to a full-screen modal with color-coded log lines (red for errors, yellow for warnings, green for success, gray for default).
+- **Game Profiles** section redesigned with the new aesthetic (monospace inputs, terminal-style action buttons).
+- **History** section redesigned: each entry rendered as a single terminal-style line.
+- **API Key Help modal** redesigned with green border and monospace content.
+
+### Notes
+- Primarily a UI change (CSS, HTML, JS). The only backend addition is a new `clear_logs` Tauri command (5 lines in `commands.rs` + 1-line registration in `lib.rs`) to support the Clear button in the new logs modal. The in-memory log buffer previously had no clear path.
+- No changes to settings data model or storage. All existing IDs and event signatures are preserved — save logic and event listeners work unchanged.
+- The app version in the Settings footer is now `v0.9.0`.
+
 ## [0.8.6] - 2026-06-10
 
 ### Fixed
