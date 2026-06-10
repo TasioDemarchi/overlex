@@ -4,6 +4,7 @@ pub mod chain;
 mod deepl;
 mod deepseek;
 mod gemini;
+mod groq;
 mod google_gtx;
 mod mymemory;
 
@@ -16,6 +17,7 @@ pub use chain::TranslationChain;
 pub use deepl::DeepLAdapter;
 pub use deepseek::DeepSeekAdapter;
 pub use gemini::GeminiAdapter;
+pub use groq::GroqAdapter;
 pub use google_gtx::GoogleGtxAdapter;
 pub use mymemory::MyMemoryAdapter;
 
@@ -23,9 +25,9 @@ use crate::commands::Settings;
 use crate::app_log;
 
 /// Engine classification constants
-pub const PAID_ENGINES: &[&str] = &["gemini", "deepl", "deepseek"];
+pub const PAID_ENGINES: &[&str] = &["gemini", "deepl", "deepseek", "groq"];
 pub const FREE_ENGINES: &[&str] = &["google_gtx", "mymemory"];
-pub const ALL_ENGINES: &[&str] = &["google_gtx", "mymemory", "gemini", "deepl", "deepseek"];
+pub const ALL_ENGINES: &[&str] = &["google_gtx", "mymemory", "gemini", "deepl", "deepseek", "groq"];
 
 /// Game context passed to translation engines for domain-aware translations
 #[derive(Debug, Clone)]
@@ -134,6 +136,19 @@ fn create_engine_internal(engine_key: &str, api_key_override: Option<&str>) -> B
             );
             Box::new(DeepSeekAdapter::new(api_key))
         }
+        "groq" => {
+            let api_key = api_key_override
+                .map(|s| s.to_string())
+                .or_else(|| crate::settings::get_api_key("groq").ok());
+            app_log!(
+                "[ENGINE] Creating Groq Llama 3.1 8B Instant engine (API key: {})",
+                match &api_key {
+                    Some(k) => format!("present ({} chars, starts with {}...)", k.len(), &k[..k.len().min(8)]),
+                    None => "NOT FOUND — save the API key in Settings first".to_string(),
+                }
+            );
+            Box::new(GroqAdapter::new(api_key))
+        }
         "mymemory" => {
             app_log!("[ENGINE] Using MyMemory (free, no API key)");
             Box::new(MyMemoryAdapter::new())
@@ -147,7 +162,7 @@ fn create_engine_internal(engine_key: &str, api_key_override: Option<&str>) -> B
 
 /// Create a translation engine based on settings (backward-compatible wrapper).
 /// Supports: google_gtx (default, free), mymemory (free),
-/// gemini (requires API key), deepl (requires API key), deepseek (requires API key).
+/// gemini (requires API key), deepl (requires API key), deepseek (requires API key), groq (requires API key).
 pub fn create_engine(settings: &Settings, api_key_override: Option<String>) -> Box<dyn TranslationEngine> {
     create_engine_internal(&settings.primary_engine, api_key_override.as_deref())
 }
@@ -256,6 +271,15 @@ mod tests {
         settings.primary_engine = "deepseek".to_string();
         let engine = create_engine(&settings, None);
         assert_eq!(engine.name(), "DeepSeek");
+        assert!(engine.requires_api_key());
+    }
+
+    #[test]
+    fn test_create_engine_groq() {
+        let mut settings = Settings::default();
+        settings.primary_engine = "groq".to_string();
+        let engine = create_engine(&settings, None);
+        assert_eq!(engine.name(), "Groq");
         assert!(engine.requires_api_key());
     }
 }

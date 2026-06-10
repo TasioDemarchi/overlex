@@ -315,6 +315,7 @@ This file documents key architectural decisions for OverLex. Each ADR is numbere
 | 017 | Decoupled freeze hide | User returns to game immediately after OCR, not after translation |
 | 018 | Hybrid console + terminal UI | Settings panel redesign with `[x] [ ]` checkboxes, `>` prompts, green terminal accents |
 | 019 | docs/changes/ folder for plans | Change plans live in `docs/changes/<change-name>/plan.md`, ADRs stay flat in `decisions.md` |
+| 020 | Add Groq as alternative paid engine | New Groq engine with llama-3.1-8b-instant model, OpenAI-compatible adapter, free tier, opt-in via enabled_engines |
 
 ---
 
@@ -334,3 +335,24 @@ This file documents key architectural decisions for OverLex. Each ADR is numbere
   - A1: Keep `plan.md` at repo root (current pattern for v0.8.5/v0.8.6) — rejected because as changes accumulate, root becomes cluttered.
   - A2: Per-change folders with multiple artifacts (`plan.md`, `design.md`, `tasks.md`, `notes.md`) — rejected as over-engineered for personal projects. SDD Lite is intentionally lean.
   - A3: Folders named by type (`docs/changes/ui/`, `docs/changes/feature/`, `docs/changes/bugfix/`) — rejected because a single change can span multiple types. Change names are unambiguous.
+
+---
+
+## ADR-020 — Add Groq as alternative paid translation engine
+
+- **Date**: 2026-06-10
+- **Status**: Accepted
+- **Context**: DeepSeek is paid (token-based) and can be cost-prohibitive for some users. Groq offers a generous free tier with comparable quality on 8B models. User wants to try Groq without removing DeepSeek. AHA principle: don't remove until 3+ use cases justify it. Additive change (G3 from analysis) is lowest-risk.
+- **Decision**: Add Groq as a new paid engine with `llama-3.1-8b-instant` model. OpenAI-compatible API means adapter is ~95% identical to DeepSeek. Users opt-in by adding Groq to `enabled_engines` and providing an API key.
+- **Consequences**:
+  - One more option in the engine dropdown (4 paid engines total: Gemini, DeepL, DeepSeek, Groq)
+  - CSP updated to allow `https://api.groq.com`
+  - `test_api_key` command now supports 4 engines (was 3)
+  - 429 handling on test differs from DeepSeek (reports "rate limited but key valid" instead of generic failure) — better UX for free tier users
+  - 6 new unit tests in `groq.rs` (5 adapter tests + 1 engine factory test)
+  - Zero settings migration (additive)
+  - If Groq quality is insufficient after real-world testing, model can be swapped to `llama-3.3-70b-versatile` in a future change (different `model` field, same API)
+- **Alternatives considered**:
+  - G1: Replace DeepSeek with Groq — rejected because user has not yet validated Groq quality; AHA principle says don't remove without evidence
+  - G2: Add Groq as free engine (no key required) — rejected because it would silently fail for users without keys, creating a poor UX footgun
+  - G4: Remove DeepSeek, don't replace — rejected because it reduces user choice without adding value

@@ -1327,6 +1327,54 @@ pub async fn test_api_key(engine: String, key: String) -> Result<TestApiKeyResul
                 }
             }
         }
+        "groq" => {
+            // Test Groq API with a minimal request (OpenAI-compatible chat completions)
+            let url = "https://api.groq.com/openai/v1/chat/completions";
+
+            let client = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(10))
+                .build()
+                .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+
+            let body = serde_json::json!({
+                "model": "llama-3.1-8b-instant",
+                "messages": [{"role": "user", "content": "Hi"}],
+                "max_tokens": 10
+            });
+
+            let response = client
+                .post(url)
+                .header("Authorization", format!("Bearer {}", key))
+                .header("Content-Type", "application/json")
+                .json(&body)
+                .send()
+                .await
+                .map_err(|e| format!("Network error: {}", e))?;
+
+            let status = response.status();
+            if status.is_success() {
+                Ok(TestApiKeyResult {
+                    success: true,
+                    message: "Groq API key is valid and working".to_string(),
+                })
+            } else {
+                let body = response.text().await.unwrap_or_default();
+                match status.as_u16() {
+                    401 | 403 => Ok(TestApiKeyResult {
+                        success: false,
+                        message: "Invalid API key. Get one at https://console.groq.com/keys".to_string(),
+                    }),
+                    429 => Ok(TestApiKeyResult {
+                        success: false,
+                        message: "Rate limit hit during test. The key is valid but you're exceeding Groq's free tier limits (6K TPM). Wait and retry.".to_string(),
+                    }),
+                    _ => Ok(TestApiKeyResult {
+                        success: false,
+                        message: format!("Error: {} - {}", status, body),
+                    }),
+                }
+            }
+        }
         _ => {
             Err(format!("Engine '{}' does not support API key testing", engine))
         }

@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.9.1] - 2026-06-10
+
+### Added
+- Groq translation engine (model: `llama-3.1-8b-instant`). OpenAI-compatible API, free tier with generous rate limits (6K TPM, 500K TPD). Add your Groq API key in Settings > Translation Engines to enable. Groq appears as a new paid engine alongside Gemini, DeepL, and DeepSeek — opt-in only, not enabled by default.
+- API key help modal now includes Groq setup instructions.
+
+### Notes
+- Additive change. No existing engines removed, no defaults changed, no settings migration required. Users on v0.9.0 keep all their current settings; Groq is just an additional option in the engine list.
+- DeepSeek remains fully supported. Groq is added as an alternative for users who want a free tier or faster inference.
+
 ## [0.9.0] - 2026-06-10
 
 ### Changed

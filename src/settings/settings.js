@@ -5,8 +5,8 @@ const { invoke } = window.__TAURI__.core;
 const listen = window.__TAURI__?.event?.listen;
 
 // Engines that require an API key
-const ALL_ENGINES = ['google_gtx', 'mymemory', 'gemini', 'deepl', 'deepseek'];
-const PAID_ENGINES = ['gemini', 'deepl', 'deepseek'];
+const ALL_ENGINES = ['google_gtx', 'mymemory', 'gemini', 'deepl', 'deepseek', 'groq'];
+const PAID_ENGINES = ['gemini', 'deepl', 'deepseek', 'groq'];
 const FREE_ENGINES = ['google_gtx', 'mymemory'];
 const ENGINE_LABELS = {
     google_gtx: 'Google Translate',
@@ -14,6 +14,7 @@ const ENGINE_LABELS = {
     gemini: 'Gemini',
     deepl: 'DeepL',
     deepseek: 'DeepSeek',
+    groq: 'Groq',
 };
 
 // DOM elements
@@ -1141,6 +1142,22 @@ const API_KEY_HELP = {
             </ol>
             <div class="api-key-note">
                 <strong>Note:</strong> DeepSeek uses a prepaid balance system. You need to add credits to your account (minimum ~$2 USD). The API is very affordable — $2 can handle thousands of translations.
+            </div>
+        `
+    },
+    groq: {
+        title: 'Get Groq API Key (Free)',
+        content: `
+            <p>Groq offers a generous free tier with high-speed inference on Llama models.</p>
+            <ol>
+                <li>Go to <a href="https://console.groq.com/keys" target="_blank">Groq Console</a></li>
+                <li>Sign in with your Google or GitHub account</li>
+                <li>Click <strong>"Create API Key"</strong></li>
+                <li>Copy the generated key (starts with <code>gsk_</code>)</li>
+                <li>Paste it here and click Save</li>
+            </ol>
+            <div class="api-key-note">
+                <strong>Free tier includes:</strong> 6K tokens/min, 500K tokens/day on llama-3.1-8b-instant. No credit card required.
             </div>
         `
     }
