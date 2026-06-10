@@ -502,6 +502,48 @@ async function invokeWithRetry(cmd, args, maxRetries = 3, delayMs = 500) {
 
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', async () => {
+    // --- Window controls (custom title bar) ---
+    const minimizeBtn = document.querySelector('.window-titlebar .minimize-btn');
+    const closeBtn = document.querySelector('.window-titlebar .close-btn');
+    if (minimizeBtn) {
+        minimizeBtn.addEventListener('click', async () => {
+            try {
+                const win = window.__TAURI__.window.getCurrentWindow();
+                await win.minimize();
+            } catch (err) {
+                console.error('Failed to minimize window:', err);
+            }
+        });
+    }
+    if (closeBtn) {
+        closeBtn.addEventListener('click', async () => {
+            try {
+                await window.__TAURI__.core.invoke('hide_window', { label: 'main' });
+            } catch (err) {
+                console.error('Failed to hide window:', err);
+            }
+        });
+    }
+
+    // Window dragging via title bar
+    const titleBar = document.querySelector('.window-titlebar');
+    if (titleBar) {
+        titleBar.addEventListener('mousedown', async (e) => {
+            if (e.target.closest('.window-btn')) return;
+            try {
+                const win = window.__TAURI__.window.getCurrentWindow();
+                await win.startDragging();
+            } catch (err) {
+                console.error('Failed to start dragging:', err);
+            }
+        });
+    }
+
+    // --- Custom terminal selects ---
+    document.querySelectorAll('select[data-terminal-select]').forEach(sel => {
+        createTerminalSelect(sel);
+    });
+
     // Setup hotkey capture
     setupHotkeyCapture(ocrHotkeyInput);
     setupHotkeyCapture(writeHotkeyInput);
@@ -818,6 +860,79 @@ document.addEventListener('DOMContentLoaded', async () => {
 let __currentEnabledEngines = [...FREE_ENGINES];
 let __currentPrimaryEngine = 'google_gtx';
 
+// ============================================================
+// Custom terminal-style select component
+// ============================================================
+
+function createTerminalSelect(nativeSelect) {
+    // If already wrapped, tear down old wrapper
+    const existingWrap = nativeSelect.parentElement;
+    if (existingWrap && existingWrap.classList.contains('terminal-select-wrap')) {
+        const oldTs = existingWrap.querySelector('.terminal-select');
+        if (oldTs) oldTs.remove();
+        // Move native select back to original parent before re-wrapping
+        existingWrap.parentNode.insertBefore(nativeSelect, existingWrap);
+        existingWrap.remove();
+    }
+
+    // Wrap native select in hidden container
+    const wrap = document.createElement('div');
+    wrap.className = 'terminal-select-wrap';
+    nativeSelect.parentNode.insertBefore(wrap, nativeSelect);
+    wrap.appendChild(nativeSelect);
+
+    // Create terminal select UI
+    const ts = document.createElement('div');
+    ts.className = 'terminal-select';
+    wrap.appendChild(ts);
+
+    // Current value display
+    const current = document.createElement('div');
+    current.className = 'ts-current';
+    current.textContent = nativeSelect.options[nativeSelect.selectedIndex]?.textContent || nativeSelect.value || '';
+    ts.appendChild(current);
+
+    // Options list
+    const options = document.createElement('div');
+    options.className = 'ts-options';
+
+    Array.from(nativeSelect.options).forEach(opt => {
+        const optDiv = document.createElement('div');
+        optDiv.className = 'ts-option';
+        if (opt.selected) optDiv.classList.add('selected');
+        optDiv.textContent = opt.textContent;
+        optDiv.dataset.value = opt.value;
+        optDiv.addEventListener('click', () => {
+            nativeSelect.value = opt.value;
+            nativeSelect.dispatchEvent(new Event('change', { bubbles: true }));
+            current.textContent = opt.textContent;
+            ts.classList.remove('open');
+            // Update selected class
+            options.querySelectorAll('.ts-option').forEach(o => o.classList.remove('selected'));
+            optDiv.classList.add('selected');
+        });
+        options.appendChild(optDiv);
+    });
+
+    ts.appendChild(options);
+
+    // Toggle open/close on current display click
+    current.addEventListener('click', (e) => {
+        e.stopPropagation();
+        ts.classList.toggle('open');
+    });
+
+    // Close when clicking outside
+    const closeHandler = (e) => {
+        if (!ts.contains(e.target)) {
+            ts.classList.remove('open');
+        }
+    };
+    document.addEventListener('click', closeHandler);
+
+    return ts;
+}
+
 function getCheckedPaidEngines() {
     const checked = [];
     PAID_ENGINES.forEach(engine => {
@@ -853,7 +968,6 @@ function renderEnginesWithKeys(enabledEngines, primaryEngine) {
 
         const cbDisplay = document.createElement('span');
         cbDisplay.className = 'cb-display';
-        cbDisplay.textContent = '[ ]';
 
         const cbLabelText = document.createElement('span');
         cbLabelText.className = 'cb-label';
@@ -887,14 +1001,19 @@ function renderEnginesWithKeys(enabledEngines, primaryEngine) {
         const statusEl = document.createElement('small');
         statusEl.id = `api-key-status-${engine}`;
         statusEl.className = 'engine-status';
+        statusEl.style.display = 'none';
         block.appendChild(statusEl);
 
         // Toggle key row on checkbox change
         cb.addEventListener('change', () => {
             if (cb.checked) {
                 keyRow.classList.add('visible');
+                statusEl.style.display = '';
+                checkEngineKeyStatus(engine).catch(e => console.warn(`checkEngineKeyStatus ${engine} failed:`, e));
             } else {
                 keyRow.classList.remove('visible');
+                statusEl.style.display = 'none';
+                statusEl.textContent = '';
             }
             renderPrimaryDropdown(primaryEngineSelect.value);
         });
@@ -905,9 +1024,12 @@ function renderEnginesWithKeys(enabledEngines, primaryEngine) {
     // Render primary engine dropdown
     renderPrimaryDropdown(primaryEngine);
 
-    // Check stored keys for paid engines
+    // Check stored keys for enabled paid engines only
     PAID_ENGINES.forEach(engine => {
-        checkEngineKeyStatus(engine).catch(e => console.warn(`checkEngineKeyStatus ${engine} failed:`, e));
+        const cb = document.getElementById(`engine-cb-${engine}`);
+        if (cb && cb.checked) {
+            checkEngineKeyStatus(engine).catch(e => console.warn(`checkEngineKeyStatus ${engine} failed:`, e));
+        }
     });
 }
 
@@ -932,6 +1054,9 @@ function renderPrimaryDropdown(selectedEngine) {
     }
 
     __currentPrimaryEngine = primaryEngineSelect.value;
+
+    // Refresh the terminal select wrapper for primary-engine (options changed)
+    createTerminalSelect(primaryEngineSelect);
 }
 
 // When primary engine changes, update local state
@@ -1020,26 +1145,38 @@ async function testAllEnabledKeys() {
                 // Auto-save on success
                 await invoke('set_api_key', { engine, key });
                 valid.push(engine);
-                // Update per-engine status
-                const engStatus = document.getElementById(`api-key-status-${engine}`);
-                if (engStatus) {
-                    engStatus.textContent = `✓ ${result.message}`;
-                    engStatus.style.color = 'var(--terminal)';
+                // Update per-engine status (only if still checked)
+                const cb = document.getElementById(`engine-cb-${engine}`);
+                if (cb && cb.checked) {
+                    const engStatus = document.getElementById(`api-key-status-${engine}`);
+                    if (engStatus) {
+                        engStatus.textContent = `✓ ${result.message}`;
+                        engStatus.style.color = 'var(--terminal)';
+                        engStatus.style.display = '';
+                    }
                 }
             } else {
                 failed.push(engine);
-                const engStatus = document.getElementById(`api-key-status-${engine}`);
-                if (engStatus) {
-                    engStatus.textContent = `✗ ${result.message}`;
-                    engStatus.style.color = 'var(--error)';
+                const cb = document.getElementById(`engine-cb-${engine}`);
+                if (cb && cb.checked) {
+                    const engStatus = document.getElementById(`api-key-status-${engine}`);
+                    if (engStatus) {
+                        engStatus.textContent = `✗ ${result.message}`;
+                        engStatus.style.color = 'var(--error)';
+                        engStatus.style.display = '';
+                    }
                 }
             }
         } catch (e) {
             failed.push(engine);
-            const engStatus = document.getElementById(`api-key-status-${engine}`);
-            if (engStatus) {
-                engStatus.textContent = `✗ Test failed: ${e}`;
-                engStatus.style.color = 'var(--error)';
+            const cb = document.getElementById(`engine-cb-${engine}`);
+            if (cb && cb.checked) {
+                const engStatus = document.getElementById(`api-key-status-${engine}`);
+                if (engStatus) {
+                    engStatus.textContent = `✗ Test failed: ${e}`;
+                    engStatus.style.color = 'var(--error)';
+                    engStatus.style.display = '';
+                }
             }
         }
     }

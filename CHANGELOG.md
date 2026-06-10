@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.9.2] - 2026-06-10
+
+### Changed
+- **Color palette adjusted**: backgrounds changed from blue-tinted grays (`#1a1a2e`, `#16213e`) to pure grays (`#1f2937`, `#111827`). Section titles are now gray-white instead of blue. Blue accent (`#4e9af1`) is reserved only for focus rings and links. Terminal green continues for terminal cues.
+- **Custom title bar**: the main Settings window now has a custom terminal-style title bar replacing native Windows decorations. Includes `[ — ]` minimize (to taskbar) and `[ X ]` close (hide, not exit) buttons. The title bar is draggable — same pattern as the result window. Window is no longer resizable.
+- **Custom terminal-style selects**: source language, target language, primary engine, and overlay position dropdowns now use a custom component with `>` arrow instead of native browser chrome. The native `<select>` is preserved in the DOM for form values.
+- **Checkbox visualization corrected**: checkboxes now properly show `[ ]` when unchecked and `[x]` when checked via CSS `::before` pseudo-elements. The hardcoded span text is no longer used.
+- **API key help button relocated**: moved from next to the Primary Engine dropdown to a `[ HOW TO GET API KEYS ]` button above the engines list, where it's contextually relevant.
+- **Engines list footer**: version updated to v0.9.2.
+
+### Fixed
+- **"Error checking key" no longer shows for disabled engines**: engine status messages (API key stored, error checking key, etc.) are only displayed when the engine's checkbox is checked. Disabled engines show no status text at all. Re-enabling an engine re-checks its key storage.
+- **Test All Keys respects checkbox state**: per-engine status updates during testing are guarded by checkbox state, preventing stale status from appearing on engines unchecked mid-test.
+
+### Notes
+- Pure UI/UX refinements. No backend changes, no new Tauri commands, no data migration. All settings, API keys, profiles, and history persist unchanged from v0.9.1.
+- The main Settings window now has `decorations: false` and `resizable: false` in tauri.conf.json. The existing `on_window_event` handler in `lib.rs` is preserved as a safety net.
+- Custom select component is vanilla JS (no framework). Can be extended with keyboard navigation in a future change.
+- Profile form selects (`#profile-source-lang`, `#profile-target-lang`, `#profile-engine`) still use native browser chrome — out of scope for v0.9.2.
+
 ## [0.9.1] - 2026-06-10
 
 ### Added

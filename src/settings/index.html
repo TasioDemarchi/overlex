@@ -7,9 +7,9 @@
     <style>
         :root {
             /* Base palette (gray dark) */
-            --bg-primary: #1a1a2e;
-            --bg-secondary: #16213e;
-            --bg-tertiary: #0f0f1a;
+            --bg-primary: #1f2937;
+            --bg-secondary: #111827;
+            --bg-tertiary: #0b1220;
             --text-primary: #e4e4e7;
             --text-secondary: #9ca3af;
             --text-muted: #6b7280;
@@ -38,9 +38,62 @@
             font-family: var(--font-sans);
             background: var(--bg-primary);
             color: var(--text-primary);
-            padding: 20px;
+            padding: 52px 20px 20px;
             min-height: 100vh;
         }
+
+        /* Window title bar — custom, replaces native decorations */
+        .window-titlebar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 32px;
+            background: var(--bg-tertiary);
+            border-bottom: 1px solid var(--border-strong);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 12px;
+            z-index: 1000;
+            user-select: none;
+            -webkit-user-select: none;
+            font-family: var(--font-mono);
+        }
+        .window-title {
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            font-weight: 600;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+        }
+        .window-controls {
+            display: flex;
+            gap: 4px;
+        }
+        .window-btn {
+            background: transparent;
+            border: 1px solid var(--border-strong);
+            color: var(--text-secondary);
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            padding: 2px 8px;
+            cursor: pointer;
+            border-radius: var(--terminal-radius);
+            transition: background 0.1s, color 0.1s, border-color 0.1s;
+            line-height: 1;
+        }
+        .window-btn:hover {
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            border-color: var(--text-secondary);
+        }
+        .window-btn.close-btn:hover {
+            background: rgba(255, 107, 107, 0.15);
+            color: var(--error);
+            border-color: var(--error);
+        }
+
         h1 {
             margin-bottom: 24px;
             font-size: 1.75rem;
@@ -51,7 +104,7 @@
             font-size: 0.9rem;
             font-weight: 600;
             font-family: var(--font-sans);
-            color: var(--accent);
+            color: var(--text-primary);
             margin: 24px 0 10px;
             padding-left: 10px;
             border-left: 3px solid var(--terminal-dim);
@@ -126,22 +179,105 @@
             min-width: 2.2em;
             flex-shrink: 0;
         }
+        .terminal-checkbox .cb-display::before {
+            content: '[ ]';
+        }
+        .terminal-checkbox input:checked + .cb-display::before {
+            content: '[x]';
+        }
         .terminal-checkbox input:checked + .cb-display {
             color: var(--terminal);
         }
         .terminal-checkbox .cb-label {
             color: var(--text-primary);
         }
-        .terminal-checkbox:hover .cb-display {
+        .terminal-checkbox:hover .cb-display::before {
             color: var(--accent);
         }
-        .terminal-checkbox input:checked:hover + .cb-display {
+        .terminal-checkbox input:checked:hover + .cb-display::before {
             color: var(--terminal-dim);
         }
         .terminal-checkbox input:focus-visible + .cb-display {
             outline: 2px solid var(--accent);
             outline-offset: 2px;
             border-radius: 2px;
+        }
+
+        /* Custom terminal-style selects */
+        .terminal-select {
+            position: relative;
+            display: block;
+            width: 100%;
+            font-family: var(--font-mono);
+            font-size: 0.9rem;
+            cursor: pointer;
+            user-select: none;
+        }
+        .terminal-select .ts-current {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 12px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-strong);
+            border-radius: var(--terminal-radius);
+            color: var(--text-primary);
+            transition: border-color 0.2s;
+        }
+        .terminal-select .ts-current:hover {
+            border-color: var(--text-secondary);
+        }
+        .terminal-select.open .ts-current {
+            border-color: var(--terminal);
+        }
+        .terminal-select .ts-current::after {
+            content: '>';
+            color: var(--terminal);
+            font-weight: bold;
+            margin-left: 8px;
+            transition: transform 0.2s;
+        }
+        .terminal-select.open .ts-current::after {
+            transform: rotate(90deg);
+        }
+        .terminal-select .ts-options {
+            display: none;
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: var(--bg-secondary);
+            border: 1px solid var(--terminal-dim);
+            border-radius: var(--terminal-radius);
+            margin-top: 2px;
+            max-height: 240px;
+            overflow-y: auto;
+            z-index: 100;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+        }
+        .terminal-select.open .ts-options {
+            display: block;
+        }
+        .terminal-select .ts-option {
+            padding: 8px 12px;
+            color: var(--text-primary);
+            cursor: pointer;
+            transition: background 0.1s;
+        }
+        .terminal-select .ts-option:hover {
+            background: var(--bg-tertiary);
+            color: var(--terminal);
+        }
+        .terminal-select .ts-option.selected {
+            color: var(--terminal);
+            background: var(--bg-tertiary);
+        }
+        .terminal-select-wrap select {
+            position: absolute;
+            opacity: 0;
+            pointer-events: none;
+            width: 0;
+            height: 0;
         }
 
         /* Terminal input with > prefix */
@@ -198,7 +334,7 @@
         }
         .small-btn:hover {
             background: var(--bg-secondary);
-            border-color: var(--accent);
+            border-color: var(--text-secondary);
         }
         .small-btn.danger {
             color: var(--error);
@@ -573,6 +709,14 @@
     </style>
 </head>
 <body>
+    <div class="window-titlebar">
+        <span class="window-title">OverLex Settings</span>
+        <div class="window-controls">
+            <button class="window-btn minimize-btn" title="Minimize" aria-label="Minimize">[ — ]</button>
+            <button class="window-btn close-btn" title="Close" aria-label="Close">[ X ]</button>
+        </div>
+    </div>
+
     <h1>OverLex Settings</h1>
 
     <!-- Missing API Key Banner -->
@@ -613,7 +757,7 @@
         <div class="form-row">
             <div class="form-group half">
                 <label for="source-lang">Source Lang</label>
-                <select id="source-lang">
+                <select id="source-lang" data-terminal-select>
                     <option value="auto">Auto-detect</option>
                     <option value="en">English</option>
                     <option value="es">Spanish</option>
@@ -629,7 +773,7 @@
             </div>
             <div class="form-group half">
                 <label for="target-lang">Target Lang</label>
-                <select id="target-lang">
+                <select id="target-lang" data-terminal-select>
                     <option value="es">Spanish</option>
                     <option value="en">English</option>
                     <option value="fr">French</option>
@@ -647,15 +791,15 @@
         <!-- Primary engine -->
         <div class="form-group">
             <label for="primary-engine">Primary Engine</label>
-            <div style="display: flex; gap: 8px; align-items: center;">
-                <select id="primary-engine" style="flex: 1;">
-                    <!-- Populated dynamically by JS -->
-                </select>
-                <button id="engine-help-btn" type="button" title="How to get API key" class="small-btn" style="flex-shrink: 0;">?</button>
-            </div>
+            <select id="primary-engine" data-terminal-select>
+                <!-- Populated dynamically by JS -->
+            </select>
         </div>
 
         <!-- Engines + API keys consolidated (rendered by JS) -->
+        <div class="engines-help-row">
+            <button id="engine-help-btn" class="small-btn">[ HOW TO GET API KEYS ]</button>
+        </div>
         <div id="engines-list" class="engines-list">
             <!-- JS renders engine blocks here -->
         </div>
@@ -672,7 +816,7 @@
     <div class="section">
         <div class="form-group">
             <label for="overlay-position">Position</label>
-            <select id="overlay-position">
+            <select id="overlay-position" data-terminal-select>
                 <option value="near-selection">Near Selection</option>
                 <option value="top-left">Top Left</option>
                 <option value="top-right">Top Right</option>
@@ -888,6 +1032,6 @@
     </div>
 
     <script src="settings.js"></script>
-    <footer id="app-version">OverLex v0.9.1</footer>
+    <footer id="app-version">OverLex v0.9.2</footer>
 </body>
 </html>

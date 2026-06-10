@@ -316,6 +316,36 @@ This file documents key architectural decisions for OverLex. Each ADR is numbere
 | 018 | Hybrid console + terminal UI | Settings panel redesign with `[x] [ ]` checkboxes, `>` prompts, green terminal accents |
 | 019 | docs/changes/ folder for plans | Change plans live in `docs/changes/<change-name>/plan.md`, ADRs stay flat in `decisions.md` |
 | 020 | Add Groq as alternative paid engine | New Groq engine with llama-3.1-8b-instant model, OpenAI-compatible adapter, free tier, opt-in via enabled_engines |
+| 021 | v0.9.2 UI refinements | Gray palette predominance, custom selects, fixed checkbox viz, status visibility fix, help modal relocated, custom title bar |
+
+---
+
+## ADR-021 — v0.9.2 UI refinements: gray predominance, custom selects, title bar
+
+- **Date**: 2026-06-10
+- **Status**: Accepted
+- **Context**: After shipping v0.9.0 (hybrid console + terminal aesthetic), user reviewed the redesign and identified 5 issues plus wanted a custom title bar for the main Settings window. The blue-dominant palette from the original tokens (`#1a1a2e`, `#16213e`, `#0f0f1a`) created a blue/violet-heavy look that didn't match the "Console Settings" reference image (which uses pure grays). Checkbox state visualization was broken — always showing `[ ]` regardless of checked state. The `checkEngineKeyStatus()` function was called for all paid engines even when disabled, causing confusing "Error checking key" messages. The API key help modal trigger (`?` button) was next to the Primary Engine dropdown, semantically wrong. Native browser selects didn't match the terminal aesthetic. Additionally, the user wanted custom window controls for the main Settings window.
+- **Decision**: 
+  1. **Color palette**: Shift from blue-tinted dark to pure gray dark (`#1f2937`, `#111827`, `#0b1220`). Section titles (`h2`) use `var(--text-primary)` (gray-white) instead of blue. `.small-btn:hover` uses `var(--text-secondary)` (gray) instead of blue. Blue accent (`#4e9af1`) kept only for `:focus` rings, `:focus-visible` outlines, and `<a>` links. Terminal green (`#51cf66`) kept for checkboxes, `>` prefixes, section dividers, and success states.
+  2. **Checkbox fix**: Use CSS `::before` pseudo-elements to render `[ ]` / `[x]` content. The `.cb-display` span's textContent is removed from JS (CSS overrides). `:checked + .cb-display::before { content: '[x]'; }` swaps the display. Lowercase `[x]` per user preference.
+  3. **Status visibility**: `engine-status` elements start with `display: none`. `checkEngineKeyStatus()` only called for engines where `cb.checked === true`. Checkbox `change` listener shows/hides status and re-checks storage on enable. `testAllEnabledKeys()` guards per-engine status updates with `cb.checked` check.
+  4. **Help modal trigger**: Removed `?` button from primary engine row. Added `[ HOW TO GET API KEYS ]` button (same `id="engine-help-btn"`) above the engines list. Existing click handler in JS works unchanged — only location and label changed.
+  5. **Custom selects**: Built a vanilla JS `createTerminalSelect(nativeSelect)` function that wraps a native `<select>` in a hidden `.terminal-select-wrap` + visible `.terminal-select` with `>` arrow. Applied to `#source-lang`, `#target-lang`, `#primary-engine`, `#overlay-position` via `data-terminal-select` attribute. Native select keeps form values. `renderPrimaryDropdown()` refreshes the primary engine wrapper after options change.
+  6. **Custom title bar**: Set `decorations: false` and `resizable: false` on the `main` window in `tauri.conf.json`. Added `.window-titlebar` HTML+CSS with `[ — ]` minimize and `[ X ]` close buttons. Minimize calls `window.minimize()` (Tauri 2 API). Close calls existing `hide_window` command (window hides, not exits). Title bar is draggable via `mousedown` → `startDragging()`. Buttons exclude drag via `e.target.closest('.window-btn')` check. Existing `on_window_event` handler in `lib.rs` remains as safety net. Added `core:window:allow-minimize` to capabilities.
+- **Consequences**:
+  - More neutral (gray) color palette — less opinionated, wider appeal.
+  - Custom selects add ~80 lines of JS but provide consistent terminal look. Profile form selects remain native (out of scope).
+  - No backend changes — zero Rust code touched. All changes are CSS/HTML/JS.
+  - No data migration — users on v0.9.1 keep all settings, keys, profiles, history.
+  - `resizable: false` means the main window cannot be resized by the user. Content is designed for 600px width.
+  - Custom title bar removes native Windows chrome — matches the terminal aesthetic of the rest of the UI.
+  - No maximize button — intentional, since the settings panel is not meant to be fullscreen.
+- **Alternatives considered**:
+  - A1: Keep blue-dominant palette — rejected by user, didn't match the reference images.
+  - A2: Use JS state management for checkbox `[x]` — rejected in favor of CSS `::before` (simpler, no JS needed).
+  - A3: Convert all selects including profile form — rejected for v0.9.2 to avoid scope creep. Profile form selects are out of scope per D25.
+  - A4: Keep native window decorations — rejected by user, wanted terminal-style title bar.
+  - A5: Add maximize button — rejected, settings panel doesn't benefit from maximize + would require responsive layout work.
 
 ---
 
