@@ -318,6 +318,7 @@ This file documents key architectural decisions for OverLex. Each ADR is numbere
 | 020 | Add Groq as alternative paid engine | New Groq engine with llama-3.1-8b-instant model, OpenAI-compatible adapter, free tier, opt-in via enabled_engines |
 | 021 | v0.9.2 UI refinements | Gray palette predominance, custom selects, fixed checkbox viz, status visibility fix, help modal relocated, custom title bar |
 | 022 | v0.9.3 UI refinements | Removed api-key-missing-banner, fixed static checkbox double-render, removed brackets from action buttons, custom scrollbar, removed redundant h1 |
+| 024 | Result window WS_EX_NOACTIVATE toggle | Clear flag before .show(), re-apply after .hide() so Esc reaches the window without stealing focus |
 
 ---
 
@@ -445,3 +446,11 @@ This file documents key architectural decisions for OverLex. Each ADR is numbere
   - A1: Call `createTerminalSelect` again AFTER `invoke('get_settings')` resolves instead of reordering — rejected because it creates wrappers with wrong values first (brief flash of incorrect value) and is unnecessarily complex when the correct fix is to set values before creating wrappers.
   - A2: Use a mutation observer to watch native select value changes — rejected as over-engineered for a simple initialization order bug.
   - A3: Keep brackets on window controls — rejected by user, wanted consistent removal across ALL buttons.
+
+---
+
+## ADR-024 — Result window toggles WS_EX_NOACTIVATE per show/hide
+
+- **Context**: Esc on the result window must close the overlay but not the in-game dialog.
+- **Decision**: Clear WS_EX_NOACTIVATE before .show(), re-apply after .hide() (commands.rs).
+- **Why**: Window can receive keyboard focus only while the flag is off. We don't call set_focus(), so the game keeps focus naturally.

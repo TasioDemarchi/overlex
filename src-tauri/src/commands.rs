@@ -131,11 +131,40 @@ pub struct ErrorPayload {
     pub message: String,
 }
 
+/// Toggle the WS_EX_NOACTIVATE flag on the result window.
+/// When `enable` is true, the flag is set (default state — window won't receive focus).
+/// When `enable` is false, the flag is cleared (window can receive focus, e.g. for Esc).
+#[cfg(target_os = "windows")]
+fn set_result_window_noactivate(result_window: &tauri::WebviewWindow, enable: bool) {
+    use windows::Win32::UI::WindowsAndMessaging::{SetWindowLongPtrW, GetWindowLongPtrW, GWL_EXSTYLE};
+    use windows::Win32::Foundation::HWND;
+
+    if let Ok(hwnd) = result_window.hwnd() {
+        let hwnd = HWND(hwnd.0);
+        unsafe {
+            let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+            // WS_EX_NOACTIVATE = 0x08000000
+            let new_style = if enable {
+                ex_style | 0x08000000_isize
+            } else {
+                ex_style & !0x08000000_isize
+            };
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, new_style);
+        }
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn set_result_window_noactivate(_result_window: &tauri::WebviewWindow, _enable: bool) {
+    // No-op on non-Windows platforms
+}
+
 /// Emit an error to the result window with guaranteed delivery.
 /// Tries to emit via Tauri event, then injects via eval() for guaranteed reception.
 fn emit_error(app_handle: &tauri::AppHandle, error: ErrorPayload, show_window: bool) {
     if let Some(result_window) = app_handle.get_webview_window("result") {
         if show_window {
+            set_result_window_noactivate(&result_window, false);
             let _ = result_window.show();
         }
         let _ = result_window.emit("overlex-error", error.clone());
@@ -155,6 +184,7 @@ fn emit_error(app_handle: &tauri::AppHandle, error: ErrorPayload, show_window: b
 fn emit_result(app_handle: &tauri::AppHandle, payload: &ResultPayload, show_window: bool) {
     if let Some(result_window) = app_handle.get_webview_window("result") {
         if show_window {
+            set_result_window_noactivate(&result_window, false);
             let _ = result_window.show();
         }
         let _ = result_window.emit("translation-result", payload);
@@ -1108,6 +1138,7 @@ pub async fn hide_window(label: String, app_handle: tauri::AppHandle) -> Result<
 pub async fn dismiss_result(app_handle: tauri::AppHandle) -> Result<(), String> {
     if let Some(window) = app_handle.get_webview_window("result") {
         window.hide().map_err(|e| e.to_string())?;
+        set_result_window_noactivate(&window, true);
     }
     Ok(())
 }
