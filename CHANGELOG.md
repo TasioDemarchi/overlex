@@ -5,6 +5,9 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.9.7] - 2026-06-12
+- feat: Write hotkey (Ctrl+Shift+W by default) now toggles the write window — press it again to close the open write overlay
+
 ## [0.9.6] - 2026-06-11
 - feat: OCR hotkey (Ctrl+Shift+T) now toggles the result window — press it again to close the open translation overlay
 

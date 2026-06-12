@@ -45,6 +45,33 @@ fn is_result_window_visible(_app_handle: &tauri::AppHandle) -> bool {
     false
 }
 
+/// Check if the write window is currently visible at the OS level.
+/// Uses IsWindowVisible because WebviewWindow::is_visible() is unreliable
+/// for windows with WS_EX_NOACTIVATE (it tracks Tauri-side state, not OS state).
+/// (The write window doesn't currently have WS_EX_NOACTIVATE, but we use
+/// IsWindowVisible for consistency and future-proofing.)
+#[cfg(target_os = "windows")]
+fn is_write_window_visible(app_handle: &tauri::AppHandle) -> bool {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging::IsWindowVisible;
+
+    if let Some(window) = app_handle.get_webview_window("write") {
+        if let Ok(hwnd) = window.hwnd() {
+            let hwnd = HWND(hwnd.0);
+            unsafe { IsWindowVisible(hwnd).as_bool() }
+        } else {
+            false
+        }
+    } else {
+        false
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn is_write_window_visible(_app_handle: &tauri::AppHandle) -> bool {
+    false
+}
+
 const HOTKEY_ID_OCR: i32 = 1;
 const HOTKEY_ID_WRITE: i32 = 2;
 const HOTKEY_ID_SWAP: i32 = 3;
@@ -270,6 +297,15 @@ pub fn register_hotkeys_with_swap(
                     }
                     HOTKEY_ID_WRITE => {
                         app_log!("Write hotkey pressed!");
+                        // Toggle: if the write window is already visible, close it instead
+                        // of starting a new write flow. Mirrors the v0.9.6 OCR hotkey toggle.
+                        if is_write_window_visible(&app_handle) {
+                            app_log!("Write window already visible — dismissing via Write hotkey toggle");
+                            if let Some(window) = app_handle.get_webview_window("write") {
+                                let _ = window.hide();
+                            }
+                            return;
+                        }
                         let _ = app_handle.emit("start-write-flow", ());
                     }
                     HOTKEY_ID_SWAP => {

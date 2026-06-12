@@ -320,6 +320,7 @@ This file documents key architectural decisions for OverLex. Each ADR is numbere
 | 022 | v0.9.3 UI refinements | Removed api-key-missing-banner, fixed static checkbox double-render, removed brackets from action buttons, custom scrollbar, removed redundant h1 |
 | 024 | Result window WS_EX_NOACTIVATE toggle | Clear flag before .show(), re-apply after .hide() so Esc reaches the window without stealing focus |
 | 025 | OCR hotkey toggles result window | Re-press OCR hotkey to close the result window, avoiding Esc-leaks-to-game without hooks/DLLs |
+| 026 | Write hotkey toggles write window | Re-press Write hotkey to close the write window, consistent with v0.9.6 OCR toggle UX |
 
 ---
 
@@ -463,3 +464,10 @@ This file documents key architectural decisions for OverLex. Each ADR is numbere
 - **Context**: The Esc key on the result window was leaking to the game, closing in-game dialogs. v0.9.5 attempted to fix this by toggling WS_EX_NOACTIVATE but the keydown still propagated to the game.
 - **Decision**: Re-pressing the OCR hotkey (Ctrl+Shift+T) while the result window is visible closes the window instead of starting a new OCR flow. Esc listener stays as-is.
 - **Why**: Reuses the existing RegisterHotKey infrastructure, no DLL/hook needed, no anti-cheat risk, the key is already in the user's muscle memory.
+
+## ADR-026 — Write hotkey toggles write window visibility
+- **Context**: After v0.9.6 OCR toggle worked, the user requested the same UX for the Write hotkey.
+- **Decision**: Re-pressing the Write hotkey (Ctrl+Shift+W) while the write window is visible closes it instead of starting a new write flow.
+- **Why**: Consistency with v0.9.6, reuses existing helper pattern (is_write_window_visible), no new infrastructure needed.
+- **Tradeoff accepted**: Toggle close uses Rust's window.hide() directly, not the frontend's closeWindow(), so chat history is preserved across toggle cycles (only Esc/X reset it). This is consistent with v0.9.6 OCR behavior.
+- **Known limitation**: Focus is not restored to the previous foreground window on toggle close (same as Esc/X manual close, pre-existing).
