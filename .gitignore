@@ -1,7 +1,6 @@
 # Rust
 /target/
 **/*.rs.bk
-Cargo.lock
 
 # Node
 node_modules/
@@ -9,7 +8,6 @@ package-lock.json
 
 # Tauri
 src-tauri/target/
-src-tauri/Cargo.lock
 
 # IDE
 .idea/
