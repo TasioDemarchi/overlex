@@ -521,6 +521,12 @@ pub fn run() {
                 }
 
                 if let Some(write_win) = handle.get_webview_window("write") {
+                    // Track that the write window is now open so the Write hotkey toggle works
+                    if let Some(state) = handle.try_state::<std::sync::Mutex<crate::hotkeys::HotkeyState>>() {
+                        if let Ok(hk) = state.lock() {
+                            hk.write_window_open.store(true, std::sync::atomic::Ordering::SeqCst);
+                        }
+                    }
                     let _ = write_win.show();
                     let _ = write_win.set_focus();
 

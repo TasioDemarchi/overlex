@@ -3,11 +3,13 @@
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::Ordering;
 use tauri::{Emitter, Manager, Position};
 
 use crate::{
     capture, history,
     history::HistoryEntry,
+    hotkeys::HotkeyState,
     ocr, settings,
     translation::{TranslationContext, TranslationEngine, TranslationError},
     ActiveGameState, FocusRestoreState, HistoryState, ResultPayload, ScreenshotState,
@@ -165,6 +167,12 @@ fn emit_error(app_handle: &tauri::AppHandle, error: ErrorPayload, show_window: b
     if let Some(result_window) = app_handle.get_webview_window("result") {
         if show_window {
             set_result_window_noactivate(&result_window, false);
+            // Track that the result window is now open so the OCR hotkey toggle works
+            if let Some(state) = app_handle.try_state::<std::sync::Mutex<HotkeyState>>() {
+                if let Ok(hk) = state.lock() {
+                    hk.result_window_open.store(true, Ordering::SeqCst);
+                }
+            }
             let _ = result_window.show();
         }
         let _ = result_window.emit("overlex-error", error.clone());
@@ -185,6 +193,12 @@ fn emit_result(app_handle: &tauri::AppHandle, payload: &ResultPayload, show_wind
     if let Some(result_window) = app_handle.get_webview_window("result") {
         if show_window {
             set_result_window_noactivate(&result_window, false);
+            // Track that the result window is now open so the OCR hotkey toggle works
+            if let Some(state) = app_handle.try_state::<std::sync::Mutex<HotkeyState>>() {
+                if let Ok(hk) = state.lock() {
+                    hk.result_window_open.store(true, Ordering::SeqCst);
+                }
+            }
             let _ = result_window.show();
         }
         let _ = result_window.emit("translation-result", payload);
@@ -712,6 +726,11 @@ pub async fn translate_text(
     // Close write window and restore focus to previous app
     if let Some(write_win) = app_handle.get_webview_window("write") {
         let _ = write_win.hide();
+        if let Some(state) = app_handle.try_state::<std::sync::Mutex<HotkeyState>>() {
+            if let Ok(hk) = state.lock() {
+                hk.write_window_open.store(false, Ordering::SeqCst);
+            }
+        }
     }
 
     // Restore focus to the previously foreground window
@@ -1129,6 +1148,13 @@ pub async fn translate_chat(
 pub async fn hide_window(label: String, app_handle: tauri::AppHandle) -> Result<(), String> {
     if let Some(window) = app_handle.get_webview_window(&label) {
         window.hide().map_err(|e| e.to_string())?;
+        if label == "write" {
+            if let Some(state) = app_handle.try_state::<std::sync::Mutex<HotkeyState>>() {
+                if let Ok(hk) = state.lock() {
+                    hk.write_window_open.store(false, Ordering::SeqCst);
+                }
+            }
+        }
     }
     Ok(())
 }
@@ -1138,6 +1164,11 @@ pub async fn hide_window(label: String, app_handle: tauri::AppHandle) -> Result<
 pub async fn dismiss_result(app_handle: tauri::AppHandle) -> Result<(), String> {
     if let Some(window) = app_handle.get_webview_window("result") {
         window.hide().map_err(|e| e.to_string())?;
+        if let Some(state) = app_handle.try_state::<std::sync::Mutex<HotkeyState>>() {
+            if let Ok(hk) = state.lock() {
+                hk.result_window_open.store(false, Ordering::SeqCst);
+            }
+        }
         set_result_window_noactivate(&window, true);
     }
     Ok(())

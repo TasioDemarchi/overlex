@@ -321,6 +321,7 @@ This file documents key architectural decisions for OverLex. Each ADR is numbere
 | 024 | Result window WS_EX_NOACTIVATE toggle | Clear flag before .show(), re-apply after .hide() so Esc reaches the window without stealing focus |
 | 025 | OCR hotkey toggles result window | Re-press OCR hotkey to close the result window, avoiding Esc-leaks-to-game without hooks/DLLs |
 | 026 | Write hotkey toggles write window | Re-press Write hotkey to close the write window, consistent with v0.9.6 OCR toggle UX |
+| 027 | Manual AtomicBool state tracking | Replace IsWindowVisible with AtomicBool flags for reliable hotkey toggle across multiple presses |
 
 ---
 
@@ -471,3 +472,9 @@ This file documents key architectural decisions for OverLex. Each ADR is numbere
 - **Why**: Consistency with v0.9.6, reuses existing helper pattern (is_write_window_visible), no new infrastructure needed.
 - **Tradeoff accepted**: Toggle close uses Rust's window.hide() directly, not the frontend's closeWindow(), so chat history is preserved across toggle cycles (only Esc/X reset it). This is consistent with v0.9.6 OCR behavior.
 - **Known limitation**: Focus is not restored to the previous foreground window on toggle close (same as Esc/X manual close, pre-existing).
+
+## ADR-027 — Manual state tracking for hotkey toggle visibility
+- **Context**: v0.9.7 toggle only worked once because IsWindowVisible (and equivalently WebviewWindow::is_visible which delegates to it on Windows) returns inconsistent results after a hide() operation on WebView2-backed windows. Confirmed by source: tao-0.35.3/src/platform_impl/windows/window.rs:664 calls util::is_visible which calls IsWindowVisible.
+- **Decision**: Replace IsWindowVisible with manual AtomicBool flags in HotkeyState. Set to true on show, false on hide, from the same code paths that perform the operation.
+- **Why**: 100% reliable, race-free, doesn't depend on Windows/WebView2 internal state. Standard pattern for multi-window apps.
+- **Trade-off**: Every show/hide call site must remember to update the flag. Documented in comments. Mitigated by centralizing the flag updates in 7 well-known locations.

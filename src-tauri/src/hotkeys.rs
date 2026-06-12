@@ -20,58 +20,6 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 use crate::app_log;
 
-/// Check if the result window is currently visible at the OS level.
-/// Uses IsWindowVisible because WebviewWindow::is_visible() is unreliable
-/// for windows with WS_EX_NOACTIVATE (it tracks Tauri-side state, not OS state).
-#[cfg(target_os = "windows")]
-fn is_result_window_visible(app_handle: &tauri::AppHandle) -> bool {
-    use windows::Win32::Foundation::HWND;
-    use windows::Win32::UI::WindowsAndMessaging::IsWindowVisible;
-
-    if let Some(window) = app_handle.get_webview_window("result") {
-        if let Ok(hwnd) = window.hwnd() {
-            let hwnd = HWND(hwnd.0);
-            unsafe { IsWindowVisible(hwnd).as_bool() }
-        } else {
-            false
-        }
-    } else {
-        false
-    }
-}
-
-#[cfg(not(target_os = "windows"))]
-fn is_result_window_visible(_app_handle: &tauri::AppHandle) -> bool {
-    false
-}
-
-/// Check if the write window is currently visible at the OS level.
-/// Uses IsWindowVisible because WebviewWindow::is_visible() is unreliable
-/// for windows with WS_EX_NOACTIVATE (it tracks Tauri-side state, not OS state).
-/// (The write window doesn't currently have WS_EX_NOACTIVATE, but we use
-/// IsWindowVisible for consistency and future-proofing.)
-#[cfg(target_os = "windows")]
-fn is_write_window_visible(app_handle: &tauri::AppHandle) -> bool {
-    use windows::Win32::Foundation::HWND;
-    use windows::Win32::UI::WindowsAndMessaging::IsWindowVisible;
-
-    if let Some(window) = app_handle.get_webview_window("write") {
-        if let Ok(hwnd) = window.hwnd() {
-            let hwnd = HWND(hwnd.0);
-            unsafe { IsWindowVisible(hwnd).as_bool() }
-        } else {
-            false
-        }
-    } else {
-        false
-    }
-}
-
-#[cfg(not(target_os = "windows"))]
-fn is_write_window_visible(_app_handle: &tauri::AppHandle) -> bool {
-    false
-}
-
 const HOTKEY_ID_OCR: i32 = 1;
 const HOTKEY_ID_WRITE: i32 = 2;
 const HOTKEY_ID_SWAP: i32 = 3;
@@ -81,6 +29,16 @@ pub struct HotkeyState {
     shutdown: Arc<AtomicBool>,
     thread_id: Arc<AtomicU32>,
     thread_handle: Option<JoinHandle<()>>,
+    /// Tracks whether the write window is currently shown.
+    /// Set by the start-write-flow listener (show) and hide_window/dismiss_write
+    /// commands (hide). Used by the Write hotkey toggle to decide whether to
+    /// emit start-write-flow or hide the window.
+    pub write_window_open: Arc<AtomicBool>,
+    /// Tracks whether the result window is currently shown.
+    /// Set by emit_result/emit_error (show) and dismiss_result/OCR toggle (hide).
+    /// Used by the OCR hotkey toggle to decide whether to emit start-ocr-flow
+    /// or hide the window.
+    pub result_window_open: Arc<AtomicBool>,
 }
 
 impl HotkeyState {
@@ -89,6 +47,8 @@ impl HotkeyState {
             shutdown: Arc::new(AtomicBool::new(false)),
             thread_id: Arc::new(AtomicU32::new(0)),
             thread_handle: None,
+            write_window_open: Arc::new(AtomicBool::new(false)),
+            result_window_open: Arc::new(AtomicBool::new(false)),
         }
     }
 }
@@ -185,6 +145,8 @@ pub fn register_hotkeys_with_swap(
 
     let shutdown = state.shutdown.clone();
     let thread_id_store = state.thread_id.clone();
+    let write_open = state.write_window_open.clone();
+    let result_open = state.result_window_open.clone();
     shutdown.store(false, Ordering::SeqCst);
 
     let handle = thread::spawn(move || {
@@ -272,10 +234,11 @@ pub fn register_hotkeys_with_swap(
                         // Toggle: if the result window is already visible, close it instead
                         // of starting a new OCR flow. This gives the user a single hotkey
                         // for both open and close, which avoids the Esc-leaks-to-game problem.
-                        if is_result_window_visible(&app_handle) {
+                        if result_open.load(Ordering::SeqCst) {
                             app_log!("Result window already visible — dismissing via OCR hotkey toggle");
                             if let Some(window) = app_handle.get_webview_window("result") {
                                 let _ = window.hide();
+                                result_open.store(false, Ordering::SeqCst);
                                 // Re-apply WS_EX_NOACTIVATE on hide (dismiss_result does this,
                                 // but we call hide() directly here to avoid a re-entrant command call)
                                 #[cfg(target_os = "windows")]
@@ -299,10 +262,11 @@ pub fn register_hotkeys_with_swap(
                         app_log!("Write hotkey pressed!");
                         // Toggle: if the write window is already visible, close it instead
                         // of starting a new write flow. Mirrors the v0.9.6 OCR hotkey toggle.
-                        if is_write_window_visible(&app_handle) {
+                        if write_open.load(Ordering::SeqCst) {
                             app_log!("Write window already visible — dismissing via Write hotkey toggle");
                             if let Some(window) = app_handle.get_webview_window("write") {
                                 let _ = window.hide();
+                                write_open.store(false, Ordering::SeqCst);
                             }
                             return;
                         }
