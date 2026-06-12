@@ -20,6 +20,31 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 use crate::app_log;
 
+/// Check if the result window is currently visible at the OS level.
+/// Uses IsWindowVisible because WebviewWindow::is_visible() is unreliable
+/// for windows with WS_EX_NOACTIVATE (it tracks Tauri-side state, not OS state).
+#[cfg(target_os = "windows")]
+fn is_result_window_visible(app_handle: &tauri::AppHandle) -> bool {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging::IsWindowVisible;
+
+    if let Some(window) = app_handle.get_webview_window("result") {
+        if let Ok(hwnd) = window.hwnd() {
+            let hwnd = HWND(hwnd.0);
+            unsafe { IsWindowVisible(hwnd).as_bool() }
+        } else {
+            false
+        }
+    } else {
+        false
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn is_result_window_visible(_app_handle: &tauri::AppHandle) -> bool {
+    false
+}
+
 const HOTKEY_ID_OCR: i32 = 1;
 const HOTKEY_ID_WRITE: i32 = 2;
 const HOTKEY_ID_SWAP: i32 = 3;
@@ -217,6 +242,30 @@ pub fn register_hotkeys_with_swap(
                 match hotkey_id {
                     HOTKEY_ID_OCR => {
                         app_log!("OCR hotkey pressed!");
+                        // Toggle: if the result window is already visible, close it instead
+                        // of starting a new OCR flow. This gives the user a single hotkey
+                        // for both open and close, which avoids the Esc-leaks-to-game problem.
+                        if is_result_window_visible(&app_handle) {
+                            app_log!("Result window already visible — dismissing via OCR hotkey toggle");
+                            if let Some(window) = app_handle.get_webview_window("result") {
+                                let _ = window.hide();
+                                // Re-apply WS_EX_NOACTIVATE on hide (dismiss_result does this,
+                                // but we call hide() directly here to avoid a re-entrant command call)
+                                #[cfg(target_os = "windows")]
+                                {
+                                    use windows::Win32::UI::WindowsAndMessaging::{SetWindowLongPtrW, GetWindowLongPtrW, GWL_EXSTYLE};
+                                    use windows::Win32::Foundation::HWND;
+                                    if let Ok(hwnd) = window.hwnd() {
+                                        let hwnd = HWND(hwnd.0);
+                                        unsafe {
+                                            let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+                                            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex_style | 0x08000000_isize);
+                                        }
+                                    }
+                                }
+                            }
+                            return;
+                        }
                         let _ = app_handle.emit("start-ocr-flow", ());
                     }
                     HOTKEY_ID_WRITE => {

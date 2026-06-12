@@ -5,6 +5,9 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.9.6] - 2026-06-11
+- feat: OCR hotkey (Ctrl+Shift+T) now toggles the result window — press it again to close the open translation overlay
+
 ## [0.9.5] - 2026-06-11
 
 - fix: attempt to fix Esc key leaking to game by toggling WS_EX_NOACTIVATE on result window (did not resolve the issue — Esc still reaches the game; superseded by v0.9.6 with a keyboard hook approach)

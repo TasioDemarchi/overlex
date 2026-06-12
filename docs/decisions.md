@@ -319,6 +319,7 @@ This file documents key architectural decisions for OverLex. Each ADR is numbere
 | 021 | v0.9.2 UI refinements | Gray palette predominance, custom selects, fixed checkbox viz, status visibility fix, help modal relocated, custom title bar |
 | 022 | v0.9.3 UI refinements | Removed api-key-missing-banner, fixed static checkbox double-render, removed brackets from action buttons, custom scrollbar, removed redundant h1 |
 | 024 | Result window WS_EX_NOACTIVATE toggle | Clear flag before .show(), re-apply after .hide() so Esc reaches the window without stealing focus |
+| 025 | OCR hotkey toggles result window | Re-press OCR hotkey to close the result window, avoiding Esc-leaks-to-game without hooks/DLLs |
 
 ---
 
@@ -454,3 +455,11 @@ This file documents key architectural decisions for OverLex. Each ADR is numbere
 - **Context**: Esc on the result window must close the overlay but not the in-game dialog.
 - **Decision**: Clear WS_EX_NOACTIVATE before .show(), re-apply after .hide() (commands.rs).
 - **Why**: Window can receive keyboard focus only while the flag is off. We don't call set_focus(), so the game keeps focus naturally.
+
+---
+
+## ADR-025 — OCR hotkey toggles result window visibility
+
+- **Context**: The Esc key on the result window was leaking to the game, closing in-game dialogs. v0.9.5 attempted to fix this by toggling WS_EX_NOACTIVATE but the keydown still propagated to the game.
+- **Decision**: Re-pressing the OCR hotkey (Ctrl+Shift+T) while the result window is visible closes the window instead of starting a new OCR flow. Esc listener stays as-is.
+- **Why**: Reuses the existing RegisterHotKey infrastructure, no DLL/hook needed, no anti-cheat risk, the key is already in the user's muscle memory.
