@@ -13,6 +13,7 @@ const swapBtn = document.getElementById('swap-btn');
 
 // Store current original text for re-translation
 let __currentOriginal = '';
+let __closeWithEsc = true;  // Default true; updated on settings load + settings-changed event
 
 // Timer state
 let __dismissTimerId = null;
@@ -234,6 +235,9 @@ let __currentEngine = '—';
                         debugEl.classList.remove('visible');
                     }
                 }
+                if (typeof payload.close_with_esc === 'boolean') {
+                    __closeWithEsc = payload.close_with_esc;
+                }
                 // Re-render debug line with updated engine
                 if (payload.show_debug) {
                     const debugEl = document.getElementById('debug-line');
@@ -300,6 +304,7 @@ swapBtn.addEventListener('click', async () => {
 // ESC key
 document.addEventListener('keydown', async (e) => {
     if (e.key === 'Escape') {
+        if (!__closeWithEsc) return;
         try { await window.__TAURI__?.core?.invoke('dismiss_result'); } catch (e) { console.error('Failed to dismiss:', e); }
     }
 });

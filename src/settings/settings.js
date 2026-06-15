@@ -29,6 +29,7 @@ const autoDismissEnabledCheckbox = document.getElementById('auto-dismiss-enabled
 const timeoutGroup = document.getElementById('timeout-group');
 const overlayTimeoutInput = document.getElementById('overlay-timeout');
 const startWithWindowsCheckbox = document.getElementById('start-with-windows');
+const closeWithEscCheckbox = document.getElementById('close-with-esc');
 const saveBtn = document.getElementById('save-btn');
 const messageEl = document.getElementById('message');
 
@@ -626,6 +627,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         startWithWindowsCheckbox.checked = settings.start_with_windows || false;
 
+        closeWithEscCheckbox.checked = settings.close_with_esc !== false;
+
         // OCR pre-processing settings
         ocrPreprocessingCheckbox.checked = settings.ocr_preprocessing !== false;
         ocrBinarizeCheckbox.checked = settings.ocr_binarize === true;
@@ -696,6 +699,8 @@ saveBtn.addEventListener('click', async () => {
         history_enabled: historyEnabledCheckbox.checked,
         // Debug indicator
         show_debug: showDebugCheckbox.checked,
+        // Esc close behavior
+        close_with_esc: closeWithEscCheckbox.checked,
         // Game profiles (must be included to avoid deleting them on save)
         profiles: profiles,
     };

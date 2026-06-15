@@ -292,6 +292,15 @@ This file documents key architectural decisions for OverLex. Each ADR is numbere
   - A3: Keep per-engine Test Key buttons — rejected because a single `[ TEST ALL KEYS ]` button is more convenient and reduces visual clutter.
   - A4: Make logs clear client-side only (no backend command) — rejected because the next modal open would re-fetch the old logs, making "clear" useless. Backend clear is the only correct solution.
 
+## ADR-028 — Configurable Esc behavior via close_with_esc setting
+
+- **Context**: User wanted to disable Esc closing translation windows so they don't fall back on it. The hotkey toggle is the preferred close path (works in any game state, doesn't conflict with game Esc handlers).
+- **Decision**: Add a `close_with_esc` boolean setting (default true) that gates the Esc keydown listeners in result.js and write.js. When false, the listeners are no-ops. Other close paths (hotkey toggle, (×) button, auto-dismiss timer) are unaffected.
+- **Why**: User can opt in to the new behavior without breaking defaults. Backward compatible. Backend unchanged.
+- **Out of scope**: Per-window setting (e.g. only write, not result). Single boolean for both keeps the UI simple.
+
+---
+
 ## Summary
 
 | ADR | Title | Key impact |
@@ -322,6 +331,7 @@ This file documents key architectural decisions for OverLex. Each ADR is numbere
 | 025 | OCR hotkey toggles result window | Re-press OCR hotkey to close the result window, avoiding Esc-leaks-to-game without hooks/DLLs |
 | 026 | Write hotkey toggles write window | Re-press Write hotkey to close the write window, consistent with v0.9.6 OCR toggle UX |
 | 027 | Manual AtomicBool state tracking | Replace IsWindowVisible with AtomicBool flags for reliable hotkey toggle across multiple presses |
+| 028 | Configurable Esc behavior via close_with_esc setting | Boolean setting (default true) gates Esc listeners; user can disable to force hotkey toggle usage |
 
 ---
 

@@ -259,6 +259,11 @@ pub struct Settings {
     pub profiles: Vec<GameProfile>,
     #[serde(default)]
     pub show_debug: bool,
+    /// Whether Esc closes the result and write windows. Default true.
+    /// When false, the user must close via the hotkey toggle, the (×) button,
+    /// or the auto-dismiss timer (result only).
+    #[serde(default = "default_true")]
+    pub close_with_esc: bool,
 }
 
 fn default_primary_engine() -> String {
@@ -293,6 +298,8 @@ struct SettingsRaw {
     pub history_enabled: bool,
     pub profiles: Vec<GameProfile>,
     pub show_debug: bool,
+    #[serde(default = "default_true")]
+    pub close_with_esc: bool,
 }
 
 impl Default for SettingsRaw {
@@ -313,6 +320,7 @@ impl Default for SettingsRaw {
             history_enabled: s.history_enabled,
             profiles: s.profiles,
             show_debug: s.show_debug,
+            close_with_esc: s.close_with_esc,
         }
     }
 }
@@ -352,6 +360,7 @@ impl<'de> Deserialize<'de> for Settings {
             history_enabled: raw.history_enabled,
             profiles: raw.profiles,
             show_debug: raw.show_debug,
+            close_with_esc: raw.close_with_esc,
         };
 
         // Migrate old format

@@ -10,6 +10,7 @@ const swapBtn = document.getElementById('swap-btn');
 
 let hasMessages = false;
 let __currentEngine = '—';
+let __closeWithEsc = true;  // Default true; updated on settings load + settings-changed event
 
 // Engine name mapping
 const ENGINE_LABELS = {
@@ -130,6 +131,9 @@ try {
                     debugEl.classList.remove('visible');
                 }
             }
+            if (typeof payload.close_with_esc === 'boolean') {
+                __closeWithEsc = payload.close_with_esc;
+            }
         });
     }
 } catch (err) {
@@ -213,13 +217,17 @@ input?.addEventListener('keydown', async (e) => {
         input.focus();
 
     } else if (e.key === 'Escape') {
+        if (!__closeWithEsc) return;
         closeWindow();
     }
 });
 
 // ESC at window level
 window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') closeWindow();
+    if (e.key === 'Escape') {
+        if (!__closeWithEsc) return;
+        closeWindow();
+    }
 });
 
 // Focus input on window focus
