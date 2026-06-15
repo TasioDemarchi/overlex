@@ -5,6 +5,9 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.9.9] - 2026-06-12
+- fix: OCR and Write hotkey toggles now work on unlimited presses (was: thread died after first toggle because `return;` in the match arm exited the entire closure, killing the message pump)
+
 ## [0.9.8] - 2026-06-12
 - fix: Write and OCR hotkey toggles now work consistently across multiple presses by replacing IsWindowVisible with manual state tracking
 

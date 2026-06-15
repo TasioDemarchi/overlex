@@ -254,9 +254,9 @@ pub fn register_hotkeys_with_swap(
                                     }
                                 }
                             }
-                            return;
+                        } else {
+                            let _ = app_handle.emit("start-ocr-flow", ());
                         }
-                        let _ = app_handle.emit("start-ocr-flow", ());
                     }
                     HOTKEY_ID_WRITE => {
                         app_log!("Write hotkey pressed!");
@@ -268,9 +268,9 @@ pub fn register_hotkeys_with_swap(
                                 let _ = window.hide();
                                 write_open.store(false, Ordering::SeqCst);
                             }
-                            return;
+                        } else {
+                            let _ = app_handle.emit("start-write-flow", ());
                         }
-                        let _ = app_handle.emit("start-write-flow", ());
                     }
                     HOTKEY_ID_SWAP => {
                         app_log!("Swap languages hotkey pressed!");
