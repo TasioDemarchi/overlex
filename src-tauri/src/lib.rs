@@ -74,6 +74,9 @@ pub struct ResultPayload {
     pub engine_used: String,
     /// True if a fallback engine was used (primary engine failed)
     pub fallback: bool,
+    /// True if this result was served from the history cache (no engine call)
+    #[serde(default)]
+    pub from_cache: bool,
 }
 
 fn setup_tray<R: Runtime>(app: &tauri::App<R>) -> Result<(), Box<dyn std::error::Error>> {
@@ -655,6 +658,7 @@ pub fn run() {
             commands::export_history,
             commands::clear_history,
             commands::delete_history_entry,
+            commands::force_retranslate,
             commands::add_profile,
             commands::remove_profile,
             commands::update_profile,

@@ -10,6 +10,7 @@ const originalToggle = document.getElementById('original-toggle');
 const originalSection = document.getElementById('original-section');
 const langDisplay = document.getElementById('lang-display');
 const swapBtn = document.getElementById('swap-btn');
+const retranslateBtn = document.getElementById('retranslate-btn');
 
 // Store current original text for re-translation
 let __currentOriginal = '';
@@ -108,6 +109,8 @@ window.onTranslationResult = function(payload) {
         originalEl.style.display = 'none';
         translatedEl.style.display = 'none';
         originalSection.style.display = 'none';
+        // Hide retranslate button on error
+        if (retranslateBtn) retranslateBtn.style.display = 'none';
     } else {
         translatedEl.textContent = payload.translated;
         originalEl.textContent = payload.original;
@@ -116,8 +119,33 @@ window.onTranslationResult = function(payload) {
         translatedEl.style.display = 'block';
         originalSection.style.display = 'block';
 
-        // Show engine used indicator
-        updateEngineUsedIndicator(payload.engine_used, payload.fallback);
+        // Handle cache display vs engine display
+        if (payload.from_cache) {
+            updateCachedIndicator(payload.engine_used);
+            if (retranslateBtn) {
+                retranslateBtn.style.display = 'inline-block';
+                retranslateBtn.onclick = async () => {
+                    retranslateBtn.style.display = 'none';
+                    try {
+                        const updated = await window.__TAURI__?.core?.invoke('force_retranslate', {
+                            originalText: payload.original,
+                            sourceLang: payload.source_lang,
+                            targetLang: payload.target_lang,
+                        });
+                        // Update the displayed translation and indicator
+                        translatedEl.textContent = updated.translated_text;
+                        updateCachedIndicator(updated.engine);
+                        if (retranslateBtn) retranslateBtn.style.display = 'inline-block';
+                    } catch (err) {
+                        console.error('Re-translate failed:', err);
+                        if (retranslateBtn) retranslateBtn.style.display = 'inline-block';
+                    }
+                };
+            }
+        } else {
+            if (retranslateBtn) retranslateBtn.style.display = 'none';
+            updateEngineUsedIndicator(payload.engine_used, payload.fallback);
+        }
     }
 };
 
@@ -155,6 +183,17 @@ function updateEngineUsedIndicator(engineUsed, fallback) {
         engineEl.textContent = displayName;
         engineEl.style.color = '#888'; // subtle gray for normal
     }
+}
+
+function updateCachedIndicator(engineUsed) {
+    const engineEl = document.getElementById('engine-used');
+    if (!engineEl) return;
+    engineEl.style.display = 'block';
+    const now = new Date();
+    const timestamp = now.toISOString().replace('T', ' ').substring(0, 19);
+    const displayName = ENGINE_LABELS[engineUsed] || engineUsed;
+    engineEl.textContent = `cached · ${displayName}`;
+    engineEl.style.color = '#69db7c'; // green for cached
 }
 
 // Fallback: also try Tauri event listeners (wrapped safely)

@@ -299,6 +299,17 @@ This file documents key architectural decisions for OverLex. Each ADR is numbere
 - **Why**: User can opt in to the new behavior without breaking defaults. Backward compatible. Backend unchanged.
 - **Out of scope**: Per-window setting (e.g. only write, not result). Single boolean for both keeps the UI simple.
 
+## ADR-029 — History as translation cache with normalized match
+- **Date**: 2026-06-15
+- **Status**: Accepted
+- **Context**: User noticed that game UI text repeats often ("Press E to interact", etc.) and wanted to avoid paying for engine API calls on already-translated text. Speed is also a factor.
+- **Decision**: Before calling the engine, check the history DB with a normalized text match (lowercase + trim + whitespace collapse). If found, return the cached translation. The user can force a fresh translation via a "↻" button, which updates the existing history entry in place.
+- **Why**: Saves tokens (especially on paid engines like Groq/DeepL), reduces latency (~1ms cache vs 500-2000ms engine), DB doesn't grow unbounded (updates in place instead of inserting new rows). Normalized match handles whitespace/case variations common in OCR.
+- **Tradeoff**: User might miss engine improvements if they don't click "↻". Mitigated by the prominent button.
+- **Settings**: `use_history_cache` (default true), disabled when `history_enabled == false`.
+
+---
+
 ---
 
 ## Summary

@@ -30,6 +30,7 @@ const timeoutGroup = document.getElementById('timeout-group');
 const overlayTimeoutInput = document.getElementById('overlay-timeout');
 const startWithWindowsCheckbox = document.getElementById('start-with-windows');
 const closeWithEscCheckbox = document.getElementById('close-with-esc');
+const useHistoryCacheCheckbox = document.getElementById('use-history-cache');
 const saveBtn = document.getElementById('save-btn');
 const messageEl = document.getElementById('message');
 
@@ -576,6 +577,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Setup history toggle
     historyEnabledCheckbox.addEventListener('change', () => {
         historyPanel.style.display = historyEnabledCheckbox.checked ? 'block' : 'none';
+        useHistoryCacheCheckbox.disabled = !historyEnabledCheckbox.checked;
         if (historyEnabledCheckbox.checked) {
             renderHistory();
         }
@@ -636,6 +638,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // History settings
         historyEnabledCheckbox.checked = settings.history_enabled !== false;
+        useHistoryCacheCheckbox.checked = settings.use_history_cache !== false;
+        useHistoryCacheCheckbox.disabled = !historyEnabledCheckbox.checked;
         historyPanel.style.display = historyEnabledCheckbox.checked ? 'block' : 'none';
 
         // Load history if enabled
@@ -660,6 +664,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         ocrBinarizeCheckbox.checked = false;
         ocrBinarizeCheckbox.disabled = false;
         historyEnabledCheckbox.checked = true;
+        useHistoryCacheCheckbox.checked = true;
+        useHistoryCacheCheckbox.disabled = false;
         historyPanel.style.display = 'block';
     }
 
@@ -697,6 +703,7 @@ saveBtn.addEventListener('click', async () => {
         ocr_binarize: ocrBinarizeCheckbox.checked,
         // History
         history_enabled: historyEnabledCheckbox.checked,
+        use_history_cache: useHistoryCacheCheckbox.checked,
         // Debug indicator
         show_debug: showDebugCheckbox.checked,
         // Esc close behavior

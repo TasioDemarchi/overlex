@@ -181,16 +181,53 @@ input?.addEventListener('keydown', async (e) => {
             translatedEl.textContent = result.translated;
             entry.appendChild(translatedEl);
 
-            // Show engine used indicator
-            if (result.engine_used) {
-                const engineNote = document.createElement('div');
-                engineNote.className = 'detected-lang';
+            // Show engine / cached indicator
+            if (result.from_cache) {
+                // Cached result
+                const cachedMeta = document.createElement('div');
+                cachedMeta.className = 'detected-lang';
                 const displayName = ENGINE_LABELS[result.engine_used] || result.engine_used;
-                engineNote.textContent = result.fallback
-                    ? `⚠ ${displayName} (fallback)`
-                    : `${displayName}`;
-                engineNote.style.color = result.fallback ? '#ffa94d' : '#555';
-                entry.appendChild(engineNote);
+                cachedMeta.textContent = `cached · ${displayName}`;
+                cachedMeta.style.color = '#69db7c';
+                entry.appendChild(cachedMeta);
+
+                // Add re-translate button
+                const retranslateBtn = document.createElement('button');
+                retranslateBtn.className = 'retranslate-msg-btn';
+                retranslateBtn.textContent = '↻';
+                retranslateBtn.title = 'Force re-translate';
+                retranslateBtn.style.cssText = 'background: none; border: 1px solid #69db7c; color: #69db7c; cursor: pointer; padding: 1px 6px; border-radius: 3px; font-size: 14px; margin-left: 6px;';
+                retranslateBtn.onclick = async (e) => {
+                    e.stopPropagation();
+                    retranslateBtn.disabled = true;
+                    try {
+                        const updated = await window.__TAURI__?.core?.invoke('force_retranslate', {
+                            originalText: text,
+                            sourceLang: result.detected_source || 'auto',
+                            targetLang: 'es', // fallback
+                        });
+                        // Update this message's translation in-place
+                        translatedEl.textContent = updated.translated_text;
+                        cachedMeta.textContent = `cached · ${ENGINE_LABELS[updated.engine] || updated.engine}`;
+                        retranslateBtn.disabled = false;
+                    } catch (err) {
+                        console.error('Re-translate failed:', err);
+                        retranslateBtn.disabled = false;
+                    }
+                };
+                entry.appendChild(retranslateBtn);
+            } else {
+                // Normal engine result
+                if (result.engine_used) {
+                    const engineNote = document.createElement('div');
+                    engineNote.className = 'detected-lang';
+                    const displayName = ENGINE_LABELS[result.engine_used] || result.engine_used;
+                    engineNote.textContent = result.fallback
+                        ? `⚠ ${displayName} (fallback)`
+                        : `${displayName}`;
+                    engineNote.style.color = result.fallback ? '#ffa94d' : '#555';
+                    entry.appendChild(engineNote);
+                }
             }
 
             if (result.detected_source) {

@@ -255,6 +255,8 @@ pub struct Settings {
     pub ocr_binarize: bool,
     #[serde(default = "default_true")]
     pub history_enabled: bool,
+    #[serde(default = "default_true")]
+    pub use_history_cache: bool,
     #[serde(default)]
     pub profiles: Vec<GameProfile>,
     #[serde(default)]
@@ -296,6 +298,7 @@ struct SettingsRaw {
     pub ocr_preprocessing: bool,
     pub ocr_binarize: bool,
     pub history_enabled: bool,
+    pub use_history_cache: bool,
     pub profiles: Vec<GameProfile>,
     pub show_debug: bool,
     #[serde(default = "default_true")]
@@ -318,6 +321,7 @@ impl Default for SettingsRaw {
             ocr_preprocessing: s.ocr_preprocessing,
             ocr_binarize: s.ocr_binarize,
             history_enabled: s.history_enabled,
+            use_history_cache: s.use_history_cache,
             profiles: s.profiles,
             show_debug: s.show_debug,
             close_with_esc: s.close_with_esc,
@@ -358,6 +362,7 @@ impl<'de> Deserialize<'de> for Settings {
             ocr_preprocessing: raw.ocr_preprocessing,
             ocr_binarize: raw.ocr_binarize,
             history_enabled: raw.history_enabled,
+            use_history_cache: raw.use_history_cache,
             profiles: raw.profiles,
             show_debug: raw.show_debug,
             close_with_esc: raw.close_with_esc,
@@ -392,6 +397,7 @@ impl Default for Settings {
             ocr_preprocessing: true,
             ocr_binarize: false,
             history_enabled: true,
+            use_history_cache: true,
             profiles: Vec::new(),
             show_debug: false,
             close_with_esc: true,
@@ -413,6 +419,9 @@ pub struct TranslationResult {
     pub detected_source: Option<String>,
     pub engine_used: String,
     pub fallback: bool,
+    /// True if this result was served from the history cache (no engine call)
+    #[serde(default)]
+    pub from_cache: bool,
 }
 
 /// Swap source and target languages
@@ -662,57 +671,83 @@ pub async fn translate_text(
         }
     };
 
-    // Call translation chain (acquire read lock, clone Arc, release lock before async call)
-    let chain = translation_state.chain.read().unwrap().clone();
-    let result = match chain
-        .translate(
-            &text,
-            &settings.source_lang,
-            &settings.target_lang,
-            context.as_ref(),
-            context_prompt.as_deref(),
-        )
-        .await
-    {
-        Ok(r) => r,
-        Err(e) => {
-            match &e {
-                TranslationError::InvalidApiKey => {
-                    emit_error(
-                        &app_handle,
-                        ErrorPayload {
-                            code: "INVALID_API_KEY".to_string(),
-                            message: format!(
-                                "API key required for the translation engine. Set it in Settings.",
-                            ),
-                        },
-                        true,
-                    );
-                }
-                _ => {
-                    emit_error(
-                        &app_handle,
-                        ErrorPayload {
-                            code: "NETWORK_ERROR".to_string(),
-                            message: e.to_string(),
-                        },
-                        true,
-                    );
-                }
-            }
-            if let Some(write_win) = app_handle.get_webview_window("write") {
-                let _ = write_win.hide();
-            }
-            return Err(e.to_string());
-        }
+    // Try cache first if enabled
+    let cached_entry = if settings.history_enabled && settings.use_history_cache {
+        history::HistoryDb::find_cached(&text, &settings.source_lang, &settings.target_lang)
+            .ok()
+            .flatten()
+    } else {
+        None
     };
 
-    let translated_result = TranslationResult {
-        original: text.clone(),
-        translated: result.translated.clone(),
-        detected_source: result.detected_source.clone(),
-        engine_used: result.engine_used.clone(),
-        fallback: result.fallback,
+    let (translated_result, from_cache) = if let Some(entry) = cached_entry {
+        app_log!("[CACHE] Hit for: {}", &text);
+        (
+            TranslationResult {
+                original: text.clone(),
+                translated: entry.translated_text.clone(),
+                detected_source: None,
+                engine_used: entry.engine.clone(),
+                fallback: false,
+                from_cache: true,
+            },
+            true,
+        )
+    } else {
+        // Call translation chain (acquire read lock, clone Arc, release lock before async call)
+        let chain = translation_state.chain.read().unwrap().clone();
+        let result = match chain
+            .translate(
+                &text,
+                &settings.source_lang,
+                &settings.target_lang,
+                context.as_ref(),
+                context_prompt.as_deref(),
+            )
+            .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                match &e {
+                    TranslationError::InvalidApiKey => {
+                        emit_error(
+                            &app_handle,
+                            ErrorPayload {
+                                code: "INVALID_API_KEY".to_string(),
+                                message: format!(
+                                    "API key required for the translation engine. Set it in Settings.",
+                                ),
+                            },
+                            true,
+                        );
+                    }
+                    _ => {
+                        emit_error(
+                            &app_handle,
+                            ErrorPayload {
+                                code: "NETWORK_ERROR".to_string(),
+                                message: e.to_string(),
+                            },
+                            true,
+                        );
+                    }
+                }
+                if let Some(write_win) = app_handle.get_webview_window("write") {
+                    let _ = write_win.hide();
+                }
+                return Err(e.to_string());
+            }
+        };
+
+        let tr = TranslationResult {
+            original: text.clone(),
+            translated: result.translated.clone(),
+            detected_source: result.detected_source.clone(),
+            engine_used: result.engine_used.clone(),
+            fallback: result.fallback,
+            from_cache: false,
+        };
+        (tr, false)
     };
 
     // Create payload BEFORE getting the window
@@ -723,8 +758,9 @@ pub async fn translate_text(
         timeout_ms: settings.overlay_timeout_ms,
         source_lang: settings.source_lang.clone(),
         target_lang: settings.target_lang.clone(),
-        engine_used: result.engine_used.clone(),
-        fallback: result.fallback,
+        engine_used: translated_result.engine_used.clone(),
+        fallback: translated_result.fallback,
+        from_cache,
     };
 
     // Show result window and emit directly to it
@@ -757,8 +793,8 @@ pub async fn translate_text(
         }
     }
 
-    // Save to history (fire-and-forget if enabled)
-    if settings.history_enabled {
+    // Save to history (fire-and-forget if enabled AND not from cache)
+    if settings.history_enabled && !from_cache {
         let engine_used = translated_result.engine_used.clone();
         let entry = history::HistoryEntry {
             id: 0,
@@ -893,6 +929,7 @@ pub async fn ocr_capture_region(
             target_lang: settings.target_lang.clone(),
             engine_used: String::new(),
             fallback: false,
+            from_cache: false,
         };
 
         emit_result(&app_handle, &error_payload, true);
@@ -955,53 +992,90 @@ pub async fn ocr_capture_region(
         let _ = freeze_win.hide();
     }
 
-    // 7. Translate via chain (acquire read lock, clone Arc, release lock before async call)
-    let chain = translation_state.chain.read().unwrap().clone();
-    let translation_result = match chain
-        .translate(
-            &original_text,
-            &settings.source_lang,
-            &settings.target_lang,
-            context.as_ref(),
-            context_prompt.as_deref(),
-        )
-        .await
-    {
-        Ok(r) => r,
-        Err(e) => {
-            match &e {
-                TranslationError::InvalidApiKey => {
-                    emit_error(
-                        &app_handle,
-                        ErrorPayload {
-                            code: "INVALID_API_KEY".to_string(),
-                            message: format!(
-                                "API key required for the translation engine. Set it in Settings.",
-                            ),
-                        },
-                        true,
-                    );
-                }
-                _ => {
-                    emit_error(
-                        &app_handle,
-                        ErrorPayload {
-                            code: "NETWORK_ERROR".to_string(),
-                            message: format!("Translation failed: {}", e),
-                        },
-                        true,
-                    );
-                }
-            }
-            if let Some(freeze_win) = app_handle.get_webview_window("freeze") {
-                let _ = freeze_win.hide();
-            }
-            return Err(format!("Translation failed: {}", e));
-        }
+    // NEW: Try cache first if enabled
+    let cached_entry = if settings.history_enabled && settings.use_history_cache {
+        history::HistoryDb::find_cached(&original_text, &settings.source_lang, &settings.target_lang)
+            .ok()
+            .flatten()
+    } else {
+        None
     };
 
-    // 7. Save to history (fire-and-forget if enabled)
-    if settings.history_enabled {
+    let (translation_result, from_cache) = if let Some(entry) = cached_entry {
+        // Cache hit — use cached translation, skip engine
+        app_log!("[CACHE] Hit for: {}", &original_text);
+        (
+            TranslationResult {
+                original: original_text.clone(),
+                translated: entry.translated_text.clone(),
+                detected_source: None,
+                engine_used: entry.engine.clone(),
+                fallback: false,
+                from_cache: true,
+            },
+            true,
+        )
+    } else {
+        // Cache miss — call the engine
+        // 7. Translate via chain (acquire read lock, clone Arc, release lock before async call)
+        let chain = translation_state.chain.read().unwrap().clone();
+        let result = match chain
+            .translate(
+                &original_text,
+                &settings.source_lang,
+                &settings.target_lang,
+                context.as_ref(),
+                context_prompt.as_deref(),
+            )
+            .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                match &e {
+                    TranslationError::InvalidApiKey => {
+                        emit_error(
+                            &app_handle,
+                            ErrorPayload {
+                                code: "INVALID_API_KEY".to_string(),
+                                message: format!(
+                                    "API key required for the translation engine. Set it in Settings.",
+                                ),
+                            },
+                            true,
+                        );
+                    }
+                    _ => {
+                        emit_error(
+                            &app_handle,
+                            ErrorPayload {
+                                code: "NETWORK_ERROR".to_string(),
+                                message: format!("Translation failed: {}", e),
+                            },
+                            true,
+                        );
+                    }
+                }
+                if let Some(freeze_win) = app_handle.get_webview_window("freeze") {
+                    let _ = freeze_win.hide();
+                }
+                return Err(format!("Translation failed: {}", e));
+            }
+        };
+        (
+            TranslationResult {
+                original: original_text.clone(),
+                translated: result.translated.clone(),
+                detected_source: result.detected_source.clone(),
+                engine_used: result.engine_used.clone(),
+                fallback: result.fallback,
+                from_cache: false,
+            },
+            false,
+        )
+    };
+
+    // 7. Save to history (fire-and-forget if enabled AND not from cache)
+    if settings.history_enabled && !from_cache {
         let engine_used = translation_result.engine_used.clone();
         let entry = history::HistoryEntry {
             id: 0,
@@ -1029,6 +1103,7 @@ pub async fn ocr_capture_region(
         target_lang: settings.target_lang.clone(),
         engine_used: translation_result.engine_used.clone(),
         fallback: translation_result.fallback,
+        from_cache,
     };
 
     // Show result window and emit directly to it
@@ -1048,6 +1123,7 @@ pub async fn ocr_capture_region(
         detected_source: translation_result.detected_source,
         engine_used: translation_result.engine_used,
         fallback: translation_result.fallback,
+        from_cache,
     })
 }
 
@@ -1097,42 +1173,70 @@ pub async fn translate_chat(
         }
     };
 
-    // Call translation chain (acquire read lock, clone Arc, release lock before async call)
-    let chain = translation_state.chain.read().unwrap().clone();
-    let result = chain
-        .translate(
-            &text,
-            &settings.source_lang,
-            &settings.target_lang,
-            context.as_ref(),
-            context_prompt.as_deref(),
-        )
-        .await
-        .map_err(|e| {
-            if let TranslationError::InvalidApiKey = &e {
-                emit_error(
-                    &app_handle,
-                    ErrorPayload {
-                        code: "INVALID_API_KEY".to_string(),
-                        message: "API key required for the translation engine. Set it in Settings.".to_string(),
-                    },
-                    true,
-                );
-            }
-            e.to_string()
-        })?;
-
-    let engine_used = result.engine_used.clone();
-    let translated_result = TranslationResult {
-        original: text.clone(),
-        translated: result.translated,
-        detected_source: result.detected_source,
-        engine_used,
-        fallback: result.fallback,
+    // Try cache first if enabled
+    let cached_entry = if settings.history_enabled && settings.use_history_cache {
+        history::HistoryDb::find_cached(&text, &settings.source_lang, &settings.target_lang)
+            .ok()
+            .flatten()
+    } else {
+        None
     };
 
-    // Save to history (fire-and-forget if enabled)
-    if settings.history_enabled {
+    let (translated_result, from_cache) = if let Some(entry) = cached_entry {
+        app_log!("[CACHE] Hit for: {}", &text);
+        (
+            TranslationResult {
+                original: text.clone(),
+                translated: entry.translated_text.clone(),
+                detected_source: None,
+                engine_used: entry.engine.clone(),
+                fallback: false,
+                from_cache: true,
+            },
+            true,
+        )
+    } else {
+        // Call translation chain (acquire read lock, clone Arc, release lock before async call)
+        let chain = translation_state.chain.read().unwrap().clone();
+        let result = chain
+            .translate(
+                &text,
+                &settings.source_lang,
+                &settings.target_lang,
+                context.as_ref(),
+                context_prompt.as_deref(),
+            )
+            .await
+            .map_err(|e| {
+                if let TranslationError::InvalidApiKey = &e {
+                    emit_error(
+                        &app_handle,
+                        ErrorPayload {
+                            code: "INVALID_API_KEY".to_string(),
+                            message: "API key required for the translation engine. Set it in Settings.".to_string(),
+                        },
+                        true,
+                    );
+                }
+                e.to_string()
+            })?;
+
+        let engine_used = result.engine_used.clone();
+        (
+            TranslationResult {
+                original: text.clone(),
+                translated: result.translated,
+                detected_source: result.detected_source,
+                engine_used,
+                fallback: result.fallback,
+                from_cache: false,
+            },
+            false,
+        )
+    };
+
+    // Save to history (fire-and-forget if enabled AND not from cache)
+    if settings.history_enabled && !from_cache {
         let history_engine = translated_result.engine_used.clone();
         let entry = history::HistoryEntry {
             id: 0,
@@ -1572,6 +1676,57 @@ pub async fn delete_history_entry(
     tokio::task::spawn_blocking(move || history::HistoryDb::delete(id))
         .await
         .map_err(|e| format!("Task join error: {}", e))?
+}
+
+/// Force a re-translation by calling the engine, ignoring the cache.
+/// If a matching cache entry exists, update it in place with the new translation.
+/// If no matching entry exists, inserts a new history entry.
+#[tauri::command]
+pub async fn force_retranslate(
+    original_text: String,
+    source_lang: String,
+    target_lang: String,
+    translation_state: tauri::State<'_, TranslationState>,
+    settings_state: tauri::State<'_, SettingsState>,
+    _history: tauri::State<'_, HistoryState>,
+    app_handle: tauri::AppHandle,
+) -> Result<HistoryEntry, String> {
+    let settings = settings_state.settings.lock().unwrap().clone();
+
+    // Call engine (no cache check — this command explicitly bypasses the cache)
+    let chain = translation_state.chain.read().unwrap().clone();
+    let result = chain
+        .translate(&original_text, &source_lang, &target_lang, None, None)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // Find existing cache entry
+    let existing = history::HistoryDb::find_cached(&original_text, &source_lang, &target_lang)?;
+
+    if let Some(entry) = existing {
+        history::HistoryDb::update_translation(entry.id, &result.translated, &result.engine_used)?;
+        // Re-read the updated entry to return it with current timestamp
+        let updated = history::HistoryDb::find_cached(&original_text, &source_lang, &target_lang)?
+            .ok_or_else(|| "Entry disappeared after update".to_string())?;
+        app_log!("[CACHE] Force re-translate: updated entry id={}", entry.id);
+        Ok(updated)
+    } else {
+        // No existing entry — insert new
+        let new_entry = history::HistoryEntry {
+            id: 0,
+            original_text: original_text.clone(),
+            translated_text: result.translated.clone(),
+            source_lang: source_lang.clone(),
+            target_lang: target_lang.clone(),
+            engine: result.engine_used.clone(),
+            created_at: String::new(),
+        };
+        let _ = history::HistoryDb::insert(&new_entry)?;
+        let created = history::HistoryDb::find_cached(&original_text, &source_lang, &target_lang)?
+            .ok_or_else(|| "Entry disappeared after insert".to_string())?;
+        app_log!("[CACHE] Force re-translate: inserted new entry");
+        Ok(created)
+    }
 }
 
 // ============================================================================

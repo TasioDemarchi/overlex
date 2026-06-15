@@ -211,6 +211,65 @@ impl HistoryDb {
             .map_err(|e| format!("Failed to delete history entry: {}", e))?;
         Ok(())
     }
+
+    /// Normalize text for cache lookup: lowercase + trim + collapse internal whitespace
+    fn normalize_for_cache(text: &str) -> String {
+        text.trim().to_lowercase()
+            .split_whitespace()
+            .collect::<Vec<&str>>()
+            .join(" ")
+    }
+
+    /// Find a cached translation matching the given text and language pair.
+    /// Returns the most recent match (ORDER BY id DESC).
+    /// The text matching is normalized (lowercase + trim + whitespace collapse).
+    pub fn find_cached(
+        original_text: &str,
+        source_lang: &str,
+        target_lang: &str,
+    ) -> Result<Option<HistoryEntry>, String> {
+        let conn = Self::get_conn()?.lock().unwrap();
+        let normalized = normalize_for_cache(original_text);
+        let mut stmt = conn.prepare(
+            "SELECT id, original_text, translated_text, source_lang, target_lang, engine, created_at
+             FROM translations
+             WHERE LOWER(TRIM(original_text)) = ?1
+               AND source_lang = ?2
+               AND target_lang = ?3
+             ORDER BY id DESC
+             LIMIT 1"
+        ).map_err(|e| format!("Failed to prepare cache query: {}", e))?;
+
+        let mut rows = stmt.query(rusqlite::params![normalized, source_lang, target_lang])
+            .map_err(|e| format!("Failed to query cache: {}", e))?;
+
+        if let Some(row) = rows.next().map_err(|e| format!("Failed to read cache row: {}", e))? {
+            Ok(Some(HistoryEntry {
+                id: row.get(0)?,
+                original_text: row.get(1)?,
+                translated_text: row.get(2)?,
+                source_lang: row.get(3)?,
+                target_lang: row.get(4)?,
+                engine: row.get(5)?,
+                created_at: row.get(6)?,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Update the translated text and engine of an existing history entry.
+    /// Also resets the created_at timestamp to the current time.
+    pub fn update_translation(id: i64, translated_text: &str, engine: &str) -> Result<(), String> {
+        let conn = Self::get_conn()?.lock().unwrap();
+        conn.execute(
+            "UPDATE translations
+             SET translated_text = ?1, engine = ?2, created_at = datetime('now')
+             WHERE id = ?3",
+            rusqlite::params![translated_text, engine, id],
+        ).map_err(|e| format!("Failed to update history entry: {}", e))?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
