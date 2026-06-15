@@ -394,6 +394,7 @@ impl Default for Settings {
             history_enabled: true,
             profiles: Vec::new(),
             show_debug: false,
+            close_with_esc: true,
         }
     }
 }
