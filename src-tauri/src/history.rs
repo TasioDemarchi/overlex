@@ -19,6 +19,14 @@ pub struct HistoryEntry {
     pub created_at: String,
 }
 
+/// Normalize text for cache lookup: lowercase + trim + collapse internal whitespace
+fn normalize_for_cache(text: &str) -> String {
+    text.trim().to_lowercase()
+        .split_whitespace()
+        .collect::<Vec<&str>>()
+        .join(" ")
+}
+
 /// Database struct for history operations
 pub struct HistoryDb;
 
@@ -212,14 +220,6 @@ impl HistoryDb {
         Ok(())
     }
 
-    /// Normalize text for cache lookup: lowercase + trim + collapse internal whitespace
-    fn normalize_for_cache(text: &str) -> String {
-        text.trim().to_lowercase()
-            .split_whitespace()
-            .collect::<Vec<&str>>()
-            .join(" ")
-    }
-
     /// Find a cached translation matching the given text and language pair.
     /// Returns the most recent match (ORDER BY id DESC).
     /// The text matching is normalized (lowercase + trim + whitespace collapse).
@@ -240,22 +240,25 @@ impl HistoryDb {
              LIMIT 1"
         ).map_err(|e| format!("Failed to prepare cache query: {}", e))?;
 
-        let mut rows = stmt.query(rusqlite::params![normalized, source_lang, target_lang])
-            .map_err(|e| format!("Failed to query cache: {}", e))?;
+        let mut entries = stmt.query_map(
+            rusqlite::params![normalized, source_lang, target_lang],
+            |row| {
+                Ok(HistoryEntry {
+                    id: row.get(0)?,
+                    original_text: row.get(1)?,
+                    translated_text: row.get(2)?,
+                    source_lang: row.get(3)?,
+                    target_lang: row.get(4)?,
+                    engine: row.get(5)?,
+                    created_at: row.get(6)?,
+                })
+            },
+        )
+        .map_err(|e| format!("Failed to query cache: {}", e))?
+        .collect::<SqlResult<Vec<_>>>()
+        .map_err(|e| format!("Failed to collect cache results: {}", e))?;
 
-        if let Some(row) = rows.next().map_err(|e| format!("Failed to read cache row: {}", e))? {
-            Ok(Some(HistoryEntry {
-                id: row.get(0)?,
-                original_text: row.get(1)?,
-                translated_text: row.get(2)?,
-                source_lang: row.get(3)?,
-                target_lang: row.get(4)?,
-                engine: row.get(5)?,
-                created_at: row.get(6)?,
-            }))
-        } else {
-            Ok(None)
-        }
+        Ok(entries.pop())
     }
 
     /// Update the translated text and engine of an existing history entry.
