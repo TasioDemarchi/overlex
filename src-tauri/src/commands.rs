@@ -745,15 +745,33 @@ pub async fn translate_text(
             }
         };
 
-        let tr = TranslationResult {
-            original: text.clone(),
-            translated: result.translated.clone(),
-            detected_source: result.detected_source.clone(),
-            engine_used: result.engine_used.clone(),
-            fallback: result.fallback,
-            from_cache: false,
-            cached_at: None,
-        };
+        (
+            TranslationResult {
+                original: text.clone(),
+                translated: result.translated.clone(),
+                detected_source: result.detected_source.clone(),
+                engine_used: result.engine_used.clone(),
+                fallback: result.fallback,
+                from_cache: false,
+                cached_at: None,
+            },
+            false,
+        )
+    };
+
+    // Build payload
+    let payload = ResultPayload {
+        original: translated_result.original.clone(),
+        translated: translated_result.translated.clone(),
+        error: None,
+        timeout_ms: settings.overlay_timeout_ms,
+        source_lang: settings.source_lang.clone(),
+        target_lang: settings.target_lang.clone(),
+        engine_used: translated_result.engine_used.clone(),
+        fallback: translated_result.fallback,
+        from_cache,
+        cached_at: translated_result.cached_at.clone(),
+    };
 
     // Show result window and emit directly to it
     if let Some(result_window) = app_handle.get_webview_window("result") {
@@ -1105,39 +1123,6 @@ pub async fn ocr_capture_region(
         fallback: translation_result.fallback,
         from_cache,
         cached_at: translation_result.cached_at.clone(),
-    };
-
-    // 7. Save to history (fire-and-forget if enabled AND not from cache)
-    if settings.history_enabled && !from_cache {
-        let engine_used = translation_result.engine_used.clone();
-        let entry = history::HistoryEntry {
-            id: 0,
-            original_text: original_text.clone(),
-            translated_text: translation_result.translated.clone(),
-            source_lang: settings.source_lang.clone(),
-            target_lang: settings.target_lang.clone(),
-            engine: engine_used,
-            created_at: String::new(), // DB sets this via DEFAULT
-        };
-        let _ = tokio::task::spawn_blocking(move || {
-            if let Err(e) = history::HistoryDb::insert(&entry) {
-                app_log!("[HISTORY] Failed to save entry: {}", e);
-            }
-        });
-    }
-
-    // Create payload BEFORE getting the window
-    let payload = ResultPayload {
-        original: text,
-        translated: translated_result.translated.clone(),
-        error: None,
-        timeout_ms: settings.overlay_timeout_ms,
-        source_lang: settings.source_lang.clone(),
-        target_lang: settings.target_lang.clone(),
-        engine_used: translated_result.engine_used.clone(),
-        fallback: translated_result.fallback,
-        from_cache,
-        cached_at: translated_result.cached_at.clone(),
     };
 
     // Show result window and emit directly to it
@@ -1760,7 +1745,7 @@ pub async fn force_retranslate(
             target_lang: target_lang.clone(),
             engine: result.engine_used.clone(),
             created_at: String::new(),
-            profile_id,
+            profile_id: profile_id.clone(),
         };
         let _ = history::HistoryDb::insert(&new_entry)?;
         let created = history::HistoryDb::find_cached(&original_text, &source_lang, &target_lang, profile_id.as_deref())?
