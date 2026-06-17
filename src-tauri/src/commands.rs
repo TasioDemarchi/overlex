@@ -422,6 +422,10 @@ pub struct TranslationResult {
     /// True if this result was served from the history cache (no engine call)
     #[serde(default)]
     pub from_cache: bool,
+    /// If from_cache, the created_at of the cache entry. Used by the frontend
+    /// to display the cache age in the indicator.
+    #[serde(default)]
+    pub cached_at: Option<String>,
 }
 
 /// Swap source and target languages
@@ -673,7 +677,8 @@ pub async fn translate_text(
 
     // Try cache first if enabled
     let cached_entry = if settings.history_enabled && settings.use_history_cache {
-        history::HistoryDb::find_cached(&text, &settings.source_lang, &settings.target_lang)
+        let profile_id = get_active_profile_id(&active_game_state);
+        history::HistoryDb::find_cached(&text, &settings.source_lang, &settings.target_lang, profile_id.as_deref())
             .ok()
             .flatten()
     } else {
@@ -690,6 +695,7 @@ pub async fn translate_text(
                 engine_used: entry.engine.clone(),
                 fallback: false,
                 from_cache: true,
+                cached_at: Some(entry.created_at.clone()),
             },
             true,
         )
@@ -746,22 +752,8 @@ pub async fn translate_text(
             engine_used: result.engine_used.clone(),
             fallback: result.fallback,
             from_cache: false,
+            cached_at: None,
         };
-        (tr, false)
-    };
-
-    // Create payload BEFORE getting the window
-    let payload = ResultPayload {
-        original: text,
-        translated: translated_result.translated.clone(),
-        error: None,
-        timeout_ms: settings.overlay_timeout_ms,
-        source_lang: settings.source_lang.clone(),
-        target_lang: settings.target_lang.clone(),
-        engine_used: translated_result.engine_used.clone(),
-        fallback: translated_result.fallback,
-        from_cache,
-    };
 
     // Show result window and emit directly to it
     if let Some(result_window) = app_handle.get_webview_window("result") {
@@ -796,6 +788,7 @@ pub async fn translate_text(
     // Save to history (fire-and-forget if enabled AND not from cache)
     if settings.history_enabled && !from_cache {
         let engine_used = translated_result.engine_used.clone();
+        let profile_id = get_active_profile_id(&active_game_state);
         let entry = history::HistoryEntry {
             id: 0,
             original_text: translated_result.original.clone(),
@@ -804,6 +797,7 @@ pub async fn translate_text(
             target_lang: settings.target_lang.clone(),
             engine: engine_used,
             created_at: String::new(),
+            profile_id,
         };
         let _ = tokio::task::spawn_blocking(move || {
             if let Err(e) = history::HistoryDb::insert(&entry) {
@@ -930,6 +924,7 @@ pub async fn ocr_capture_region(
             engine_used: String::new(),
             fallback: false,
             from_cache: false,
+            cached_at: None,
         };
 
         emit_result(&app_handle, &error_payload, true);
@@ -994,7 +989,8 @@ pub async fn ocr_capture_region(
 
     // NEW: Try cache first if enabled
     let cached_entry = if settings.history_enabled && settings.use_history_cache {
-        history::HistoryDb::find_cached(&original_text, &settings.source_lang, &settings.target_lang)
+        let profile_id = get_active_profile_id(&active_game_state);
+        history::HistoryDb::find_cached(&original_text, &settings.source_lang, &settings.target_lang, profile_id.as_deref())
             .ok()
             .flatten()
     } else {
@@ -1012,6 +1008,7 @@ pub async fn ocr_capture_region(
                 engine_used: entry.engine.clone(),
                 fallback: false,
                 from_cache: true,
+                cached_at: Some(entry.created_at.clone()),
             },
             true,
         )
@@ -1069,9 +1066,45 @@ pub async fn ocr_capture_region(
                 engine_used: result.engine_used.clone(),
                 fallback: result.fallback,
                 from_cache: false,
+                cached_at: None,
             },
             false,
         )
+    };
+
+    // 7. Save to history (fire-and-forget if enabled AND not from cache)
+    if settings.history_enabled && !from_cache {
+        let engine_used = translation_result.engine_used.clone();
+        let profile_id = get_active_profile_id(&active_game_state);
+        let entry = history::HistoryEntry {
+            id: 0,
+            original_text: original_text.clone(),
+            translated_text: translation_result.translated.clone(),
+            source_lang: settings.source_lang.clone(),
+            target_lang: settings.target_lang.clone(),
+            engine: engine_used,
+            created_at: String::new(), // DB sets this via DEFAULT
+            profile_id,
+        };
+        let _ = tokio::task::spawn_blocking(move || {
+            if let Err(e) = history::HistoryDb::insert(&entry) {
+                app_log!("[HISTORY] Failed to save entry: {}", e);
+            }
+        });
+    }
+
+    // Create payload BEFORE getting the window
+    let payload = ResultPayload {
+        original: original_text.clone(),
+        translated: translation_result.translated.clone(),
+        error: None,
+        timeout_ms: settings.overlay_timeout_ms,
+        source_lang: settings.source_lang.clone(),
+        target_lang: settings.target_lang.clone(),
+        engine_used: translation_result.engine_used.clone(),
+        fallback: translation_result.fallback,
+        from_cache,
+        cached_at: translation_result.cached_at.clone(),
     };
 
     // 7. Save to history (fire-and-forget if enabled AND not from cache)
@@ -1095,15 +1128,16 @@ pub async fn ocr_capture_region(
 
     // Create payload BEFORE getting the window
     let payload = ResultPayload {
-        original: original_text.clone(),
-        translated: translation_result.translated.clone(),
+        original: text,
+        translated: translated_result.translated.clone(),
         error: None,
         timeout_ms: settings.overlay_timeout_ms,
         source_lang: settings.source_lang.clone(),
         target_lang: settings.target_lang.clone(),
-        engine_used: translation_result.engine_used.clone(),
-        fallback: translation_result.fallback,
+        engine_used: translated_result.engine_used.clone(),
+        fallback: translated_result.fallback,
         from_cache,
+        cached_at: translated_result.cached_at.clone(),
     };
 
     // Show result window and emit directly to it
@@ -1124,10 +1158,9 @@ pub async fn ocr_capture_region(
         engine_used: translation_result.engine_used,
         fallback: translation_result.fallback,
         from_cache,
+        cached_at: translation_result.cached_at,
     })
 }
-
-/// Translate text via chat mode (write mode) - only translates, no window management
 #[tauri::command]
 pub async fn translate_chat(
     text: String,
@@ -1175,7 +1208,8 @@ pub async fn translate_chat(
 
     // Try cache first if enabled
     let cached_entry = if settings.history_enabled && settings.use_history_cache {
-        history::HistoryDb::find_cached(&text, &settings.source_lang, &settings.target_lang)
+        let profile_id = get_active_profile_id(&active_game_state);
+        history::HistoryDb::find_cached(&text, &settings.source_lang, &settings.target_lang, profile_id.as_deref())
             .ok()
             .flatten()
     } else {
@@ -1192,6 +1226,7 @@ pub async fn translate_chat(
                 engine_used: entry.engine.clone(),
                 fallback: false,
                 from_cache: true,
+                cached_at: Some(entry.created_at.clone()),
             },
             true,
         )
@@ -1230,6 +1265,7 @@ pub async fn translate_chat(
                 engine_used,
                 fallback: result.fallback,
                 from_cache: false,
+                cached_at: None,
             },
             false,
         )
@@ -1238,6 +1274,7 @@ pub async fn translate_chat(
     // Save to history (fire-and-forget if enabled AND not from cache)
     if settings.history_enabled && !from_cache {
         let history_engine = translated_result.engine_used.clone();
+        let profile_id = get_active_profile_id(&active_game_state);
         let entry = history::HistoryEntry {
             id: 0,
             original_text: translated_result.original.clone(),
@@ -1246,6 +1283,7 @@ pub async fn translate_chat(
             target_lang: settings.target_lang.clone(),
             engine: history_engine,
             created_at: String::new(),
+            profile_id,
         };
         let _ = tokio::task::spawn_blocking(move || {
             if let Err(e) = history::HistoryDb::insert(&entry) {
@@ -1688,6 +1726,7 @@ pub async fn force_retranslate(
     target_lang: String,
     translation_state: tauri::State<'_, TranslationState>,
     settings_state: tauri::State<'_, SettingsState>,
+    active_game_state: tauri::State<'_, ActiveGameState>,
     _history: tauri::State<'_, HistoryState>,
     app_handle: tauri::AppHandle,
 ) -> Result<HistoryEntry, String> {
@@ -1700,13 +1739,14 @@ pub async fn force_retranslate(
         .await
         .map_err(|e| e.to_string())?;
 
-    // Find existing cache entry
-    let existing = history::HistoryDb::find_cached(&original_text, &source_lang, &target_lang)?;
+    // Find existing cache entry (scoped to active profile)
+    let profile_id = get_active_profile_id(&active_game_state);
+    let existing = history::HistoryDb::find_cached(&original_text, &source_lang, &target_lang, profile_id.as_deref())?;
 
     if let Some(entry) = existing {
         history::HistoryDb::update_translation(entry.id, &result.translated, &result.engine_used)?;
         // Re-read the updated entry to return it with current timestamp
-        let updated = history::HistoryDb::find_cached(&original_text, &source_lang, &target_lang)?
+        let updated = history::HistoryDb::find_cached(&original_text, &source_lang, &target_lang, profile_id.as_deref())?
             .ok_or_else(|| "Entry disappeared after update".to_string())?;
         app_log!("[CACHE] Force re-translate: updated entry id={}", entry.id);
         Ok(updated)
@@ -1720,18 +1760,38 @@ pub async fn force_retranslate(
             target_lang: target_lang.clone(),
             engine: result.engine_used.clone(),
             created_at: String::new(),
+            profile_id,
         };
         let _ = history::HistoryDb::insert(&new_entry)?;
-        let created = history::HistoryDb::find_cached(&original_text, &source_lang, &target_lang)?
+        let created = history::HistoryDb::find_cached(&original_text, &source_lang, &target_lang, profile_id.as_deref())?
             .ok_or_else(|| "Entry disappeared after insert".to_string())?;
         app_log!("[CACHE] Force re-translate: inserted new entry");
         Ok(created)
     }
 }
 
+/// Open the dedicated translation history window.
+/// Shows and focuses the window; if the window is already visible it just brings it to front.
+#[tauri::command]
+pub async fn open_history_window(app_handle: tauri::AppHandle) -> Result<(), String> {
+    if let Some(window) = app_handle.get_webview_window("history") {
+        window.show().map_err(|e| e.to_string())?;
+        let _ = window.set_focus();
+    } else {
+        return Err("History window not available".to_string());
+    }
+    Ok(())
+}
+
 // ============================================================================
 // Profile Commands
 // ============================================================================
+
+/// Helper: get the active profile ID from the game state.
+/// Returns the matched profile name if a game profile is currently active.
+fn get_active_profile_id(active_game_state: &ActiveGameState) -> Option<String> {
+    active_game_state.info.lock().unwrap().matched_profile.clone()
+}
 
 /// Helper: apply a GameProfile's override fields on top of base Settings.
 /// Only `Some` fields override; `None` fields leave the base value intact.

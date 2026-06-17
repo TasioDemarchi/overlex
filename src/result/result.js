@@ -121,7 +121,7 @@ window.onTranslationResult = function(payload) {
 
         // Handle cache display vs engine display
         if (payload.from_cache) {
-            updateCachedIndicator(payload.engine_used);
+            updateCachedIndicator(payload.cached_at);
             if (retranslateBtn) {
                 retranslateBtn.style.display = 'inline-block';
                 retranslateBtn.onclick = async () => {
@@ -134,8 +134,10 @@ window.onTranslationResult = function(payload) {
                         });
                         // Update the displayed translation and indicator
                         translatedEl.textContent = updated.translated_text;
-                        updateCachedIndicator(updated.engine);
-                        if (retranslateBtn) retranslateBtn.style.display = 'inline-block';
+                        // After re-translate, show the engine (no longer cached)
+                        updateEngineUsedIndicator(updated.engine, false);
+                        // Hide ↻ button — entry is no longer cached
+                        if (retranslateBtn) retranslateBtn.style.display = 'none';
                     } catch (err) {
                         console.error('Re-translate failed:', err);
                         if (retranslateBtn) retranslateBtn.style.display = 'inline-block';
@@ -185,15 +187,21 @@ function updateEngineUsedIndicator(engineUsed, fallback) {
     }
 }
 
-function updateCachedIndicator(engineUsed) {
+function updateCachedIndicator(cachedAt) {
     const engineEl = document.getElementById('engine-used');
     if (!engineEl) return;
     engineEl.style.display = 'block';
-    const now = new Date();
-    const timestamp = now.toISOString().replace('T', ' ').substring(0, 19);
-    const displayName = ENGINE_LABELS[engineUsed] || engineUsed;
-    engineEl.textContent = `cached · ${displayName}`;
+    const ts = cachedAt ? formatCachedTimestamp(cachedAt) : '';
+    engineEl.textContent = `cached` + (ts ? ' · ' + ts : '');
     engineEl.style.color = '#69db7c'; // green for cached
+}
+
+function formatCachedTimestamp(cachedAt) {
+    if (!cachedAt) return '';
+    // Extract just the time component (e.g. "2024-01-01 14:30:45" -> "14:30:45")
+    const parts = cachedAt.split(' ');
+    if (parts.length >= 2) return parts[1];
+    return cachedAt;
 }
 
 // Fallback: also try Tauri event listeners (wrapped safely)

@@ -17,6 +17,11 @@ pub struct HistoryEntry {
     pub target_lang: String,
     pub engine: String,
     pub created_at: String,
+    /// Profile ID this entry is scoped to. NULL for entries not associated
+    /// with a game profile (e.g. browser, no game detected).
+    /// Stored as Option<String> for backward compatibility (old entries have NULL).
+    #[serde(default)]
+    pub profile_id: Option<String>,
 }
 
 /// Normalize text for cache lookup: lowercase + trim + collapse internal whitespace
@@ -47,7 +52,8 @@ impl HistoryDb {
                 source_lang TEXT NOT NULL DEFAULT 'auto',
                 target_lang TEXT NOT NULL,
                 engine TEXT NOT NULL,
-                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                profile_id TEXT
             );
 
             CREATE VIRTUAL TABLE IF NOT EXISTS translations_fts USING fts5(
@@ -68,6 +74,20 @@ impl HistoryDb {
             END;
             "#
         ).map_err(|e| format!("Failed to create schema: {}", e))?;
+
+        // Migration: add profile_id column if it doesn't exist (for existing DBs)
+        let has_profile_id: bool = conn
+            .prepare("PRAGMA table_info(translations)")
+            .map_err(|e| format!("Failed to check schema: {}", e))?
+            .query_map([], |row| row.get::<_, String>(1))
+            .map_err(|e| format!("Failed to query schema: {}", e))?
+            .filter_map(|r| r.ok())
+            .any(|col| col == "profile_id");
+
+        if !has_profile_id {
+            conn.execute("ALTER TABLE translations ADD COLUMN profile_id TEXT", [])
+                .map_err(|e| format!("Failed to add profile_id column: {}", e))?;
+        }
 
         DB.set(Mutex::new(conn))
             .map_err(|_| "History DB already initialized".to_string())?;
@@ -106,13 +126,14 @@ impl HistoryDb {
     pub fn insert(entry: &HistoryEntry) -> Result<i64, String> {
         let conn = Self::get_conn()?.lock().unwrap();
         conn.execute(
-            "INSERT INTO translations (original_text, translated_text, source_lang, target_lang, engine) VALUES (?1, ?2, ?3, ?4, ?5)",
+            "INSERT INTO translations (original_text, translated_text, source_lang, target_lang, engine, profile_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             rusqlite::params![
                 &entry.original_text,
                 &entry.translated_text,
                 &entry.source_lang,
                 &entry.target_lang,
                 &entry.engine,
+                &entry.profile_id,
             ],
         ).map_err(|e| format!("Failed to insert history: {}", e))?;
 
@@ -123,7 +144,7 @@ impl HistoryDb {
     pub fn get_all(limit: u32, offset: u32) -> Result<Vec<HistoryEntry>, String> {
         let conn = Self::get_conn()?.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, original_text, translated_text, source_lang, target_lang, engine, created_at
+            "SELECT id, original_text, translated_text, source_lang, target_lang, engine, created_at, profile_id
              FROM translations ORDER BY id DESC LIMIT ?1 OFFSET ?2"
         ).map_err(|e| format!("Failed to prepare query: {}", e))?;
 
@@ -136,6 +157,7 @@ impl HistoryDb {
                 target_lang: row.get(4)?,
                 engine: row.get(5)?,
                 created_at: row.get(6)?,
+                profile_id: row.get(7)?,
             })
         }).map_err(|e| format!("Failed to query history: {}", e))?
         .collect::<SqlResult<Vec<_>>>()
@@ -149,7 +171,7 @@ impl HistoryDb {
         let conn = Self::get_conn()?.lock().unwrap();
         let sanitized = Self::sanitize_fts5_query(query);
         let mut stmt = conn.prepare(
-            "SELECT t.id, t.original_text, t.translated_text, t.source_lang, t.target_lang, t.engine, t.created_at
+            "SELECT t.id, t.original_text, t.translated_text, t.source_lang, t.target_lang, t.engine, t.created_at, t.profile_id
              FROM translations t
              JOIN translations_fts fts ON t.id = fts.rowid
              WHERE translations_fts MATCH ?1
@@ -166,6 +188,7 @@ impl HistoryDb {
                 target_lang: row.get(4)?,
                 engine: row.get(5)?,
                 created_at: row.get(6)?,
+                profile_id: row.get(7)?,
             })
         }).map_err(|e| format!("Failed to search history: {}", e))?
         .collect::<SqlResult<Vec<_>>>()
@@ -184,17 +207,18 @@ impl HistoryDb {
                     .map_err(|e| format!("Failed to serialize JSON: {}", e))
             }
             "csv" => {
-                let mut csv = String::from("id,original_text,translated_text,source_lang,target_lang,engine,created_at\n");
+                let mut csv = String::from("id,original_text,translated_text,source_lang,target_lang,engine,created_at,profile_id\n");
                 for entry in entries {
                     csv.push_str(&format!(
-                        "{},{},{},{},{},{},{}\n",
+                        "{},{},{},{},{},{},{},{}\n",
                         entry.id,
                         Self::escape_csv_field(&entry.original_text),
                         Self::escape_csv_field(&entry.translated_text),
                         Self::escape_csv_field(&entry.source_lang),
                         Self::escape_csv_field(&entry.target_lang),
                         Self::escape_csv_field(&entry.engine),
-                        Self::escape_csv_field(&entry.created_at)
+                        Self::escape_csv_field(&entry.created_at),
+                        Self::escape_csv_field(&entry.profile_id.as_deref().unwrap_or("")),
                     ));
                 }
                 Ok(csv)
@@ -220,28 +244,31 @@ impl HistoryDb {
         Ok(())
     }
 
-    /// Find a cached translation matching the given text and language pair.
+    /// Find a cached translation matching the given text, language pair, and profile.
     /// Returns the most recent match (ORDER BY id DESC).
     /// The text matching is normalized (lowercase + trim + whitespace collapse).
+    /// profile_id is compared using SQL IS (not =) to handle NULL correctly.
     pub fn find_cached(
         original_text: &str,
         source_lang: &str,
         target_lang: &str,
+        profile_id: Option<&str>,
     ) -> Result<Option<HistoryEntry>, String> {
         let conn = Self::get_conn()?.lock().unwrap();
         let normalized = normalize_for_cache(original_text);
         let mut stmt = conn.prepare(
-            "SELECT id, original_text, translated_text, source_lang, target_lang, engine, created_at
+            "SELECT id, original_text, translated_text, source_lang, target_lang, engine, created_at, profile_id
              FROM translations
              WHERE LOWER(TRIM(original_text)) = ?1
                AND source_lang = ?2
                AND target_lang = ?3
+               AND profile_id IS ?4
              ORDER BY id DESC
              LIMIT 1"
         ).map_err(|e| format!("Failed to prepare cache query: {}", e))?;
 
         let mut entries = stmt.query_map(
-            rusqlite::params![normalized, source_lang, target_lang],
+            rusqlite::params![normalized, source_lang, target_lang, profile_id],
             |row| {
                 Ok(HistoryEntry {
                     id: row.get(0)?,
@@ -251,6 +278,7 @@ impl HistoryDb {
                     target_lang: row.get(4)?,
                     engine: row.get(5)?,
                     created_at: row.get(6)?,
+                    profile_id: row.get(7)?,
                 })
             },
         )
@@ -324,6 +352,7 @@ mod tests {
             target_lang: "es".to_string(),
             engine: "test".to_string(),
             created_at: "2024-01-01 00:00:00".to_string(),
+            profile_id: None,
         };
 
         conn.execute(

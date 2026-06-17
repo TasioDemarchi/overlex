@@ -499,3 +499,25 @@ This file documents key architectural decisions for OverLex. Each ADR is numbere
 - **Decision**: Replace IsWindowVisible with manual AtomicBool flags in HotkeyState. Set to true on show, false on hide, from the same code paths that perform the operation.
 - **Why**: 100% reliable, race-free, doesn't depend on Windows/WebView2 internal state. Standard pattern for multi-window apps.
 - **Trade-off**: Every show/hide call site must remember to update the flag. Documented in comments. Mitigated by centralizing the flag updates in 7 well-known locations.
+
+## ADR-028 — Translation history cache (v0.9.11)
+
+- **Context**: Repeat translations of the same text were calling the engine again, wasting tokens and adding latency. Users commonly translate the same UI elements or lines multiple times.
+- **Decision**: Check the history DB for a matching entry (same original text + source lang + target lang) before calling the engine. If found, return the cached translation and skip the engine call.
+- **Why**: Zero-config benefit for users — no settings toggle needed to start. The DB is local, always available, and queries are sub-millisecond.
+
+## ADR-029 — Force re-translate button (↻) on cached results
+
+- **Context**: The cache from ADR-028 could serve stale translations if the user changed engines or fixed a bad translation. The user needed a way to get a fresh translation without deleting the cache entry.
+- **Decision**: Show a "↻" button on cached results. Clicking it calls the engine with the original text and updates the existing DB entry in place (via `update_translation`), then refreshes the UI.
+- **Why**: Non-destructive — keeps the entry in history but updates its content. The user keeps full control over when to use cache vs. fresh translation.
+
+## ADR-030 — Per-profile cache, dedicated history window, engine indicator fix
+
+- **Context**: The v0.9.11 cache had three UX/data issues: (1) it ignored game profiles, causing the same word to return the same translation across different game contexts; (2) the history panel inside Settings took up significant space; (3) the engine name was shown even when the translation came from the cache (misleading).
+- **Decisions**:
+  1. Scope the cache to the active game profile (profile_id column in translations table, NULL for no-profile)
+  2. Move history to a dedicated Tauri window (label: "history")
+  3. Hide engine name when from_cache; show "cached · timestamp" instead. After force re-translate, engine name reappears.
+- **Why**: Fixes real data bug (cache pollution), declutters Settings, makes the cache UX more honest.
+- **Tradeoffs**: Per-profile cache means the same word can be stored N times (one per profile). The DB is small so this is fine. History window requires a new Tauri window setup, more code than a modal would, but consistent with the app's pattern of separate windows per concern.

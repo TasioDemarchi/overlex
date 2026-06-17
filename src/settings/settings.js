@@ -40,10 +40,7 @@ const ocrBinarizeCheckbox = document.getElementById('ocr-binarize-enabled');
 
 // History elements
 const historyEnabledCheckbox = document.getElementById('history-enabled');
-const historyPanel = document.getElementById('history-panel');
-const historySearchInput = document.getElementById('history-search');
-const historyList = document.getElementById('history-list');
-const historyLoadMoreBtn = document.getElementById('history-load-more');
+const openHistoryBtn = document.getElementById('open-history-btn');
 
 // API Key help modal elements
 const engineHelpBtn = document.getElementById('engine-help-btn');
@@ -51,10 +48,6 @@ const apiKeyModal = document.getElementById('api-key-modal');
 const apiKeyModalClose = document.getElementById('api-key-modal-close');
 const apiKeyModalTitle = document.getElementById('api-key-modal-title');
 const apiKeyModalBody = document.getElementById('api-key-modal-body');
-const historyExportJsonBtn = document.getElementById('history-export-json');
-const historyExportCsvBtn = document.getElementById('history-export-csv');
-const historyClearBtn = document.getElementById('history-clear');
-
 // Profile elements
 const activeProfileBanner = document.getElementById('active-profile-banner');
 const activeProfileName = document.getElementById('active-profile-name');
@@ -73,11 +66,6 @@ const profileOcrPreprocessing = document.getElementById('profile-ocr-preprocessi
 const profileOcrBinarize = document.getElementById('profile-ocr-binarize');
 const profileSaveBtn = document.getElementById('profile-save-btn');
 const profileCancelBtn = document.getElementById('profile-cancel-btn');
-
-// History state
-let historyOffset = 0;
-let historyHasMore = true;
-let currentSettings = null;
 
 // Profile state
 let profiles = [];
@@ -133,178 +121,11 @@ function setupHotkeyCapture(inputElement) {
     });
 }
 
-// Render a single history entry (terminal style)
-function renderHistoryEntry(entry) {
-    const div = document.createElement('div');
-    div.className = 'history-entry';
-    div.dataset.id = entry.id;
-
-    const engineLabel = ENGINE_LABELS[entry.engine] || entry.engine || 'unknown';
-
-    const prefixSpan = document.createElement('span');
-    prefixSpan.className = 'entry-prefix';
-    prefixSpan.textContent = '> ';
-
-    const originalSpan = document.createElement('span');
-    originalSpan.className = 'entry-original';
-    originalSpan.textContent = '"' + entry.original_text + '"';
-
-    const arrowSpan = document.createElement('span');
-    arrowSpan.className = 'entry-arrow';
-    arrowSpan.textContent = ' → ';
-
-    const translatedSpan = document.createElement('span');
-    translatedSpan.className = 'entry-translated';
-    translatedSpan.textContent = '"' + entry.translated_text + '"';
-
-    const metaSpan = document.createElement('span');
-    metaSpan.className = 'entry-meta';
-    metaSpan.textContent = ' [' + engineLabel + '] ';
-
-    const deleteBtn = document.createElement('button');
-    deleteBtn.className = 'delete-entry-btn';
-    deleteBtn.dataset.id = entry.id;
-    deleteBtn.textContent = '[delete]';
-
-    div.appendChild(prefixSpan);
-    div.appendChild(originalSpan);
-    div.appendChild(arrowSpan);
-    div.appendChild(translatedSpan);
-    div.appendChild(metaSpan);
-    div.appendChild(deleteBtn);
-
-    // Delete button handler
-    deleteBtn.addEventListener('click', async (e) => {
-        e.stopPropagation();
-        const id = parseInt(e.target.dataset.id);
-        if (confirm('Delete this history entry?')) {
-            try {
-                await invoke('delete_history_entry', { id });
-                renderHistory();
-            } catch (err) {
-                showMessage('Failed to delete: ' + err, true);
-            }
-        }
-    });
-
-    return div;
-}
-
 // Escape HTML to prevent XSS
 function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
-}
-
-// Render history list
-async function renderHistory() {
-    if (!currentSettings || !currentSettings.history_enabled) {
-        historyList.innerHTML = '<div style="color: var(--text-secondary); padding: 8px;">History disabled</div>';
-        return;
-    }
-
-    try {
-        const limit = 20;
-        const entries = await invoke('get_history', { limit, offset: historyOffset });
-
-        if (historyOffset === 0) {
-            historyList.innerHTML = '';
-        }
-
-        if (entries.length === 0 && historyOffset === 0) {
-            historyList.innerHTML = '<div style="color: var(--text-secondary); padding: 8px;">No history yet</div>';
-            historyHasMore = false;
-        } else {
-            entries.forEach(entry => {
-                historyList.appendChild(renderHistoryEntry(entry));
-            });
-            historyHasMore = entries.length >= limit;
-        }
-
-        historyLoadMoreBtn.style.display = historyHasMore ? 'inline-block' : 'none';
-    } catch (err) {
-        historyList.innerHTML = '<div style="color: var(--error); padding: 8px;">Failed to load history: ' + escapeHtml(err) + '</div>';
-        historyHasMore = false;
-    }
-}
-
-// Search history
-let searchTimeout = null;
-async function searchHistory() {
-    const query = historySearchInput.value.trim();
-
-    if (!currentSettings || !currentSettings.history_enabled) {
-        return;
-    }
-
-    try {
-        if (query) {
-            const entries = await invoke('search_history', { query });
-            historyList.innerHTML = '';
-            if (entries.length === 0) {
-                historyList.innerHTML = '<div style="color: var(--text-secondary); padding: 8px;">No matches found</div>';
-            } else {
-                entries.forEach(entry => {
-                    historyList.appendChild(renderHistoryEntry(entry));
-                });
-            }
-            historyHasMore = false;
-            historyLoadMoreBtn.style.display = 'none';
-        } else {
-            historyOffset = 0;
-            await renderHistory();
-        }
-    } catch (err) {
-        showMessage('Search failed: ' + err, true);
-    }
-}
-
-// Export history
-async function exportHistory(format) {
-    if (!currentSettings || !currentSettings.history_enabled) {
-        showMessage('History is disabled', true);
-        return;
-    }
-
-    try {
-        const data = await invoke('export_history', { format });
-
-        // Create download
-        const blob = new Blob([data], { type: format === 'json' ? 'application/json' : 'text/csv' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `overlex-history.${format}`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-
-        showMessage('Export complete');
-    } catch (err) {
-        showMessage('Export failed: ' + err, true);
-    }
-}
-
-// Clear all history
-async function clearHistory() {
-    if (!currentSettings || !currentSettings.history_enabled) {
-        return;
-    }
-
-    if (!confirm('Are you sure you want to delete ALL translation history? This cannot be undone.')) {
-        return;
-    }
-
-    try {
-        await invoke('clear_history');
-        historyOffset = 0;
-        await renderHistory();
-        showMessage('History cleared');
-    } catch (err) {
-        showMessage('Failed to clear history: ' + err, true);
-    }
 }
 
 // ============================================================
@@ -576,33 +397,21 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Setup history toggle
     historyEnabledCheckbox.addEventListener('change', () => {
-        historyPanel.style.display = historyEnabledCheckbox.checked ? 'block' : 'none';
         useHistoryCacheCheckbox.disabled = !historyEnabledCheckbox.checked;
-        if (historyEnabledCheckbox.checked) {
-            renderHistory();
+    });
+
+    // Setup open history button
+    openHistoryBtn.addEventListener('click', async () => {
+        try {
+            await invoke('open_history_window');
+        } catch (err) {
+            showMessage('Failed to open history: ' + err, true);
         }
     });
-
-    // Setup history search
-    historySearchInput.addEventListener('input', () => {
-        clearTimeout(searchTimeout);
-        searchTimeout = setTimeout(searchHistory, 300);
-    });
-
-    // Setup history buttons
-    historyLoadMoreBtn.addEventListener('click', async () => {
-        historyOffset += 20;
-        await renderHistory();
-    });
-
-    historyExportJsonBtn.addEventListener('click', () => exportHistory('json'));
-    historyExportCsvBtn.addEventListener('click', () => exportHistory('csv'));
-    historyClearBtn.addEventListener('click', clearHistory);
 
     // Load current settings (with retry for Tauri v2 state timing)
     try {
         const settings = await invokeWithRetry('get_settings');
-        currentSettings = settings;
 
         // Populate form fields
         ocrHotkeyInput.value = settings.ocr_hotkey || '';
@@ -640,12 +449,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         historyEnabledCheckbox.checked = settings.history_enabled !== false;
         useHistoryCacheCheckbox.checked = settings.use_history_cache !== false;
         useHistoryCacheCheckbox.disabled = !historyEnabledCheckbox.checked;
-        historyPanel.style.display = historyEnabledCheckbox.checked ? 'block' : 'none';
-
-        // Load history if enabled
-        if (historyEnabledCheckbox.checked) {
-            renderHistory();
-        }
     } catch (e) {
         console.error('Failed to load settings:', e);
         showMessage('Failed to load settings: ' + e, true);
@@ -666,7 +469,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         historyEnabledCheckbox.checked = true;
         useHistoryCacheCheckbox.checked = true;
         useHistoryCacheCheckbox.disabled = false;
-        historyPanel.style.display = 'block';
     }
 
     // --- Custom terminal selects ---
@@ -747,20 +549,11 @@ saveBtn.addEventListener('click', async () => {
             showMessage('Settings saved successfully!');
         }
 
-        // Update current settings
-        currentSettings = settings;
-
         // Refresh terminal select wrappers to reflect saved values
         createTerminalSelect(overlayPositionSelect);
         createTerminalSelect(sourceLangSelect);
         createTerminalSelect(targetLangSelect);
         // primary-engine is already refreshed by renderPrimaryDropdown
-
-        // Refresh history view if enabled
-        if (settings.history_enabled) {
-            historyOffset = 0;
-            await renderHistory();
-        }
     } catch (e) {
         console.error('Failed to save settings:', e);
         showMessage('Failed to save: ' + e, true);

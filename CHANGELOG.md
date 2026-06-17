@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.9.12] - 2026-06-15
+- feat: per-profile history cache — translations are now scoped to the active game profile, so the same word can have different translations in different game contexts
+- feat: dedicated history window — moved the translation history from a panel inside Settings to its own window, decluttering Settings
+- fix: engine indicator no longer shows when the translation came from the cache (only "cached · timestamp" is shown); after force re-translate, the engine name reappears and the retranslate button is hidden
+
 ## [0.9.11] - 2026-06-15
 - feat: history cache — repeated translations skip the engine and return the cached result instantly, saving tokens and latency. Adds a "↻" button on cached results to force a fresh translation. Controlled by the new "Use history cache" setting (default true).
 

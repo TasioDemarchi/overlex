@@ -978,25 +978,10 @@
             <label class="terminal-checkbox">
                 <input type="checkbox" id="history-enabled" />
                 <span class="cb-display"></span>
-                <span class="cb-label">Enable translation history</span>
+                <span class="cb-label">Save translation history</span>
             </label>
         </div>
-        <div id="history-panel" style="margin-top: 12px;">
-            <div class="form-group">
-                <div class="terminal-input">
-                    <input type="text" id="history-search" placeholder="Search history..." />
-                </div>
-            </div>
-            <div id="history-list" style="max-height: 200px; overflow-y: auto; margin-bottom: 8px;">
-                <!-- History entries will be populated here -->
-            </div>
-            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-                <button id="history-load-more" class="small-btn">LOAD MORE</button>
-                <button id="history-export-json" class="small-btn">EXPORT JSON</button>
-                <button id="history-export-csv" class="small-btn">EXPORT CSV</button>
-                <button id="history-clear" class="small-btn danger">CLEAR ALL</button>
-            </div>
-        </div>
+        <button id="open-history-btn" class="small-btn" style="margin-top: 8px;">OPEN HISTORY WINDOW</button>
     </div>
 
     <!-- System Section -->
@@ -1058,6 +1043,6 @@
     </div>
 
     <script src="settings.js"></script>
-    <footer id="app-version">OverLex v0.9.11</footer>
+    <footer id="app-version">OverLex v0.9.12</footer>
 </body>
 </html>

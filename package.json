@@ -1,6 +1,6 @@
 {
   "name": "overlex",
-  "version": "0.9.11",
+  "version": "0.9.12",
   "description": "OCR + translate overlay for Windows",
   "scripts": {
     "dev": "tauri dev",

@@ -77,6 +77,10 @@ pub struct ResultPayload {
     /// True if this result was served from the history cache (no engine call)
     #[serde(default)]
     pub from_cache: bool,
+    /// If from_cache, the created_at of the cache entry. Used by the frontend
+    /// to display the cache age in the indicator.
+    #[serde(default)]
+    pub cached_at: Option<String>,
 }
 
 fn setup_tray<R: Runtime>(app: &tauri::App<R>) -> Result<(), Box<dyn std::error::Error>> {
@@ -668,6 +672,7 @@ pub fn run() {
             commands::get_recent_logs,
             commands::log_from_frontend,
             commands::clear_logs,
+            commands::open_history_window,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {

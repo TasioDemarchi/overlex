@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Translation History</title>
+    <link rel="stylesheet" href="history.css">
+</head>
+<body>
+    <div class="window-titlebar">
+        <span class="window-title">Translation History</span>
+        <div class="window-controls">
+            <button class="window-btn close-btn" id="close-btn" title="Close" aria-label="Close">X</button>
+        </div>
+    </div>
+
+    <div id="toolbar">
+        <input type="text" id="history-search" placeholder="Search history..." />
+        <button id="history-load-more" class="small-btn">LOAD MORE</button>
+        <button id="history-export-json" class="small-btn">EXPORT JSON</button>
+        <button id="history-export-csv" class="small-btn">EXPORT CSV</button>
+        <button id="history-clear" class="small-btn danger">CLEAR ALL</button>
+    </div>
+
+    <div id="history-list">
+        <!-- History entries populated by JS -->
+    </div>
+
+    <div id="empty-state" style="display:none;">
+        <p>No history yet</p>
+    </div>
+
+    <div id="message"></div>
+
+    <script src="history.js"></script>
+</body>
+</html>

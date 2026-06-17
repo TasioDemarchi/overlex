@@ -41,6 +41,14 @@ function closeWindow() {
     window.__TAURI__.core.invoke('hide_window', { label: 'write' });
 }
 
+// Format a cached_at timestamp for display (e.g. "2024-01-01 14:30:45" -> "14:30:45")
+function formatCachedTimestamp(cachedAt) {
+    if (!cachedAt) return '';
+    const parts = cachedAt.split(' ');
+    if (parts.length >= 2) return parts[1];
+    return cachedAt;
+}
+
 // Auto-focus on load
 input?.focus();
 
@@ -183,11 +191,11 @@ input?.addEventListener('keydown', async (e) => {
 
             // Show engine / cached indicator
             if (result.from_cache) {
-                // Cached result
+                // Cached result — show "cached · timestamp" in green, no engine name
                 const cachedMeta = document.createElement('div');
                 cachedMeta.className = 'detected-lang';
-                const displayName = ENGINE_LABELS[result.engine_used] || result.engine_used;
-                cachedMeta.textContent = `cached · ${displayName}`;
+                const ts = formatCachedTimestamp(result.cached_at);
+                cachedMeta.textContent = 'cached' + (ts ? ' · ' + ts : '');
                 cachedMeta.style.color = '#69db7c';
                 entry.appendChild(cachedMeta);
 
@@ -208,8 +216,11 @@ input?.addEventListener('keydown', async (e) => {
                         });
                         // Update this message's translation in-place
                         translatedEl.textContent = updated.translated_text;
-                        cachedMeta.textContent = `cached · ${ENGINE_LABELS[updated.engine] || updated.engine}`;
-                        retranslateBtn.disabled = false;
+                        // After re-translate, show engine (not cached)
+                        cachedMeta.textContent = ENGINE_LABELS[updated.engine] || updated.engine;
+                        cachedMeta.style.color = '#555';
+                        // Hide retranslate button — entry is no longer cached
+                        retranslateBtn.remove();
                     } catch (err) {
                         console.error('Re-translate failed:', err);
                         retranslateBtn.disabled = false;
